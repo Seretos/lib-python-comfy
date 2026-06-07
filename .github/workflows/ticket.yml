@@ -1,0 +1,100 @@
+name: open-dep-ticket
+
+# Manual recovery workflow: re-open the dependency-update ticket in the
+# downstream consumer repo (Seretos/agent-comfy) when the automatic step in
+# release.yml was skipped or failed (e.g. missing token at release time).
+#
+# Design: independence + failure visibility.
+#   - The semver validation step runs first with no continue-on-error; an
+#     invalid version halts the job before any ticket is filed.
+#   - The consumer step carries continue-on-error: true so a broken token
+#     never silently swallows the failure — the final report step surfaces it.
+#   - A final "Report consumer failures" step (if: always()) inspects the
+#     outcome and exits non-zero if it failed, turning the job red and naming
+#     exactly which token needs attention.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "lib-python-comfy version to reference (semver, no leading v) e.g. 0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  file-tickets:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate version is semver
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-.+)?$ ]]; then
+            echo "ERROR: version must be semver without a leading 'v' (e.g. 0.2.0), got: $VERSION"
+            exit 1
+          fi
+
+      - name: Open dependency-update ticket in agent-comfy
+        id: file_comfy
+        continue-on-error: true
+        shell: bash
+        # TITLE/BODY live in env (not a run-block heredoc): a heredoc body at
+        # column 0 dedents out of the YAML block scalar and breaks the file.
+        # A YAML block scalar holds the markdown verbatim and ${{ }} still
+        # expands. Bash just references "$TITLE"/"$BODY".
+        env:
+          GH_TOKEN: ${{ secrets.COMFY_TICKET_TOKEN }}
+          TITLE: "chore(deps): bump lib-python-comfy to v${{ inputs.version }}"
+          BODY: |
+            ## Dependency update
+
+            A new release of **lib-python-comfy** has been published: `v${{ inputs.version }}`.
+
+            ### Action required
+
+            1. Update the pin in `pyproject.toml` to:
+               ```
+               lib-python-comfy @ git+https://github.com/Seretos/lib-python-comfy@v${{ inputs.version }}
+               ```
+            2. Run `pip install -e ".[test]"` then `python -m pytest` to verify the test suite passes.
+            3. Confirm the package imports: `python -c "import lib_python_comfy"`.
+            4. Commit and open a PR.
+        run: |
+          CONSUMER="Seretos/agent-comfy"
+
+          # Idempotency: skip if an open issue with this exact title already exists.
+          # --paginate follows all pages; jq filter excludes pull requests.
+          EXISTING=$(gh api --paginate "repos/${CONSUMER}/issues?state=open&per_page=100" \
+            --jq 'map(select(.pull_request|not)) | .[].title' 2>/dev/null || true)
+          if echo "$EXISTING" | grep -qxF "$TITLE"; then
+            echo "Issue already exists in ${CONSUMER}, skipping."
+          else
+            # Attempt creation with the 'dependencies' label; fall back
+            # without it if the label does not exist in the consumer repo.
+            gh issue create \
+              --repo "$CONSUMER" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label dependencies \
+            || gh issue create \
+              --repo "$CONSUMER" \
+              --title "$TITLE" \
+              --body "$BODY"
+            echo "Ticket opened in ${CONSUMER}."
+          fi
+
+      - name: Report consumer failures
+        if: always()
+        shell: bash
+        run: |
+          failed=0
+          if [ "${{ steps.file_comfy.outcome }}" = "failure" ]; then
+            echo "::error::Filing in Seretos/agent-comfy failed (check COMFY_TICKET_TOKEN)."
+            failed=1
+          fi
+          exit $failed
