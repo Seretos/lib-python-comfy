@@ -33,7 +33,46 @@ import lib_python_comfy
 print(lib_python_comfy.__version__)
 ```
 
-See `src/lib_python_comfy/__init__.py` for the public API (`__all__`).
+### ComfyClient
+
+`ComfyClient` is a transport-only HTTP wrapper around the ComfyUI REST API.
+Supply the base URL yourself — the client has no opinion on environment
+variables or default ports.
+
+```python
+from lib_python_comfy import ComfyClient, ComfyConnectionError
+
+client = ComfyClient("http://127.0.0.1:8188")
+
+# Health check (never raises)
+if not client.is_reachable():
+    raise SystemExit("ComfyUI is not running")
+
+# Queue a prompt and wait for results
+try:
+    prompt_id = client.queue_prompt({"node1": {"class_type": "KSampler", "inputs": {}}})
+except ComfyConnectionError as exc:
+    raise SystemExit(f"Network error: {exc}") from exc
+
+history = client.get_history(prompt_id)
+
+# Fetch a generated image
+image_bytes = client.view_bytes(
+    filename="ComfyUI_00001_.png",
+    subfolder="",
+    type="output",
+)
+```
+
+Use it as a context manager to ensure the underlying HTTP connection is
+closed when you are done:
+
+```python
+with ComfyClient("http://127.0.0.1:8188") as client:
+    prompt_id = client.queue_prompt(my_workflow)
+```
+
+See `src/lib_python_comfy/__init__.py` for the full public API (`__all__`).
 
 ## Develop
 
