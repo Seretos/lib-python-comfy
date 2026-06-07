@@ -19,6 +19,14 @@ from lib_python_comfy.discovery import (
 from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui
 from lib_python_comfy.models import Asset
 from lib_python_comfy.serialization import SerializationGuard
+from lib_python_comfy.templates import (
+    MissingParameterError,
+    TemplateParam,
+    discover_params,
+    list_builtin_templates,
+    load_builtin_template,
+    render,
+)
 
 __version__ = "0.1.0"
 
@@ -32,6 +40,12 @@ __all__ = [
     "NodeRef",
     "to_api",
     "to_ui",
+    "MissingParameterError",
+    "TemplateParam",
+    "discover_params",
+    "list_builtin_templates",
+    "load_builtin_template",
+    "render",
     "extract_assets",
     "fetch_bytes",
     "save_to_path",
