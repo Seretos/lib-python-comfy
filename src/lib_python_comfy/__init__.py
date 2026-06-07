@@ -9,6 +9,13 @@ from __future__ import annotations
 
 from lib_python_comfy.assets import extract_assets, fetch_bytes, save_to_path, view_url
 from lib_python_comfy.client import ComfyClient, ComfyConnectionError
+from lib_python_comfy.discovery import (
+    get_node_schema,
+    list_checkpoints,
+    list_node_types,
+    list_samplers,
+    list_schedulers,
+)
 from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui
 from lib_python_comfy.models import Asset
 from lib_python_comfy.serialization import SerializationGuard
@@ -29,4 +36,9 @@ __all__ = [
     "fetch_bytes",
     "save_to_path",
     "view_url",
+    "list_checkpoints",
+    "list_samplers",
+    "list_schedulers",
+    "list_node_types",
+    "get_node_schema",
 ]
