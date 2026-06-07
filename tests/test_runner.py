@@ -134,19 +134,20 @@ async def test_run_cancel_mid_poll():
 
     task = asyncio.create_task(runner.run({"dummy": "prompt"}, timeout=60.0))
 
-    # Let the loop iterate at least once so we know polling has started.
-    # We wait until get_history has been called at least once.
-    for _ in range(100):
-        await asyncio.sleep(0)
-        if call_count >= 1:
-            break
+    # Wait until polling has demonstrably started (get_history called at least
+    # once) before cancelling. Use real sleeps with a generous deadline: the
+    # to_thread worker needs wall-clock time to run, and asyncio.sleep(0) yields
+    # without advancing time, which races the thread pool on loaded CI hosts.
+    deadline = asyncio.get_event_loop().time() + 5.0
+    while call_count < 1 and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.01)
+
+    assert call_count >= 1, "get_history should have been called before cancel"
 
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
         await task
-
-    assert call_count >= 1, "get_history should have been called at least once"
 
     # Guard must be released — another run must not hang.
     client2 = _mock_client(
