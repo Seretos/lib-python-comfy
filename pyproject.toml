@@ -10,7 +10,11 @@ requires-python = ">=3.11"
 authors = [{ name = "Arne von Appen" }]
 # Runtime deps go here. Keep the surface small — this is a leaf dependency
 # consumed by other projects. Empty by default.
-dependencies = []
+dependencies = [
+  "httpx>=0.27",
+  "pydantic>=2",
+  "Pillow>=10",
+]
 
 [project.optional-dependencies]
 test = [
