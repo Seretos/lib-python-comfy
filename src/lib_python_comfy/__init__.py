@@ -16,7 +16,7 @@ from lib_python_comfy.discovery import (
     list_samplers,
     list_schedulers,
 )
-from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui
+from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui, txt2img
 from lib_python_comfy.models import Asset
 from lib_python_comfy.serialization import SerializationGuard
 from lib_python_comfy.templates import (
@@ -40,6 +40,7 @@ __all__ = [
     "NodeRef",
     "to_api",
     "to_ui",
+    "txt2img",
     "MissingParameterError",
     "TemplateParam",
     "discover_params",
