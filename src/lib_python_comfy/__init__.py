@@ -7,8 +7,14 @@ See `README.md` for usage.
 """
 from __future__ import annotations
 
+from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui
+
 __version__ = "0.1.0"
 
 __all__ = [
     "__version__",
+    "GraphBuilder",
+    "NodeRef",
+    "to_api",
+    "to_ui",
 ]
