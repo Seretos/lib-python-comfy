@@ -18,6 +18,7 @@ from lib_python_comfy.discovery import (
 )
 from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui, txt2img
 from lib_python_comfy.models import Asset
+from lib_python_comfy.runner import FlowRunner, JobState, JobStatus, RunResult
 from lib_python_comfy.serialization import SerializationGuard
 from lib_python_comfy.templates import (
     MissingParameterError,
@@ -35,6 +36,10 @@ __all__ = [
     "Asset",
     "ComfyClient",
     "ComfyConnectionError",
+    "FlowRunner",
+    "JobState",
+    "JobStatus",
+    "RunResult",
     "SerializationGuard",
     "GraphBuilder",
     "NodeRef",
