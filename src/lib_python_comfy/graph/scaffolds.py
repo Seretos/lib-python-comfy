@@ -96,3 +96,65 @@ def txt2img(
     g.link(vae_decode, 0, save_image, "images")
 
     return g
+
+
+def txt2audio(
+    *,
+    positive: str = "",
+    negative: str = "",
+    seed: int = 0,
+) -> GraphBuilder:
+    """Return a :class:`GraphBuilder` stub for a text-to-audio pipeline.
+
+    This is a **minimal stub** open for extension.  The graph contains a
+    single SaveAudio node with no links — callers are expected to append the
+    audio-generation nodes and wire them up before serialising.
+
+    Args:
+        positive: Positive prompt text (stored for caller reference; not wired
+                  to any node in this stub).
+        negative: Negative prompt text (stored for caller reference; not wired
+                  to any node in this stub).
+        seed: RNG seed (stored for caller reference; not wired to any node in
+              this stub).
+
+    Returns:
+        A :class:`GraphBuilder` with 1 node (SaveAudio) and no links.
+    """
+    g = GraphBuilder()
+    g.add_node("SaveAudio", {"filename_prefix": "ComfyUI"})
+    return g
+
+
+def txt2video(
+    *,
+    positive: str = "",
+    negative: str = "",
+    width: int = 512,
+    height: int = 512,
+    seed: int = 0,
+) -> GraphBuilder:
+    """Return a :class:`GraphBuilder` stub for a text-to-video pipeline.
+
+    This is a **minimal stub** open for extension.  The graph contains a
+    single VHS_VideoCombine node with no links — callers are expected to
+    append the video-generation nodes and wire them up before serialising.
+
+    Args:
+        positive: Positive prompt text (stored for caller reference; not wired
+                  to any node in this stub).
+        negative: Negative prompt text (stored for caller reference; not wired
+                  to any node in this stub).
+        width: Output width in pixels (default 512; stored for caller
+               reference; not wired to any node in this stub).
+        height: Output height in pixels (default 512; stored for caller
+                reference; not wired to any node in this stub).
+        seed: RNG seed (stored for caller reference; not wired to any node in
+              this stub).
+
+    Returns:
+        A :class:`GraphBuilder` with 1 node (VHS_VideoCombine) and no links.
+    """
+    g = GraphBuilder()
+    g.add_node("VHS_VideoCombine", {"filename_prefix": "ComfyUI", "format": "video/h264-mp4"})
+    return g

@@ -237,8 +237,8 @@ def test_extract_assets_skips_node_without_images_key():
     assert assets[0].filename == "out.png"
 
 
-def test_extract_assets_audio_key_ignored_images_extracted():
-    """'audio' key alongside 'images' is ignored; images are still extracted."""
+def test_extract_assets_audio_key_extracted_alongside_images():
+    """'audio' key alongside 'images' are both extracted (regression: audio was previously ignored)."""
     outputs = {
         "5": {
             "audio": [{"filename": "out.wav", "subfolder": "", "type": "output"}],
@@ -246,9 +246,48 @@ def test_extract_assets_audio_key_ignored_images_extracted():
         }
     }
     assets = extract_assets(outputs)
+    assert len(assets) == 2
+    filenames = {a.filename for a in assets}
+    assert "out.wav" in filenames
+    assert "preview.png" in filenames
+
+
+def test_extract_assets_video_key_extracted():
+    """'video' key entries are extracted into Asset objects."""
+    outputs = {
+        "6": {
+            "video": [{"filename": "out.mp4", "subfolder": "", "type": "output"}],
+        }
+    }
+    assets = extract_assets(outputs)
     assert len(assets) == 1
-    assert assets[0].filename == "preview.png"
-    assert assets[0].folder_type == "temp"
+    assert assets[0].filename == "out.mp4"
+
+
+def test_extract_assets_all_three_media_keys():
+    """images, audio, and video entries from the same node are all collected."""
+    outputs = {
+        "7": {
+            "images": [{"filename": "preview.png", "subfolder": "", "type": "temp"}],
+            "audio": [{"filename": "out.wav", "subfolder": "", "type": "output"}],
+            "video": [{"filename": "clip.mp4", "subfolder": "", "type": "output"}],
+        }
+    }
+    assets = extract_assets(outputs)
+    assert len(assets) == 3
+    filenames = {a.filename for a in assets}
+    assert filenames == {"preview.png", "out.wav", "clip.mp4"}
+
+
+def test_extract_assets_unknown_key_still_ignored():
+    """An unrecognised output key (e.g. 'latent') yields 0 assets."""
+    outputs = {
+        "8": {
+            "latent": [{"filename": "latent.pt", "subfolder": "", "type": "output"}],
+        }
+    }
+    assets = extract_assets(outputs)
+    assert assets == []
 
 
 def test_extract_assets_malformed_node_skipped():

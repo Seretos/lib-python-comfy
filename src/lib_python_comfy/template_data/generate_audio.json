@@ -1,0 +1,10 @@
+{
+  "1": {
+    "class_type": "SaveAudio",
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "prompt": "PARAM_STR_POSITIVE_PROMPT",
+      "seed": "PARAM_SEED_SEED"
+    }
+  }
+}

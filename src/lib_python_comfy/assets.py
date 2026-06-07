@@ -51,14 +51,17 @@ def view_url(asset: Asset, base_url: str) -> str:
     return f"{base}/view?{params}"
 
 
+_MEDIA_KEYS = ("images", "audio", "video")
+
+
 def extract_assets(outputs: dict[str, Any]) -> list[Asset]:
     """Parse a ComfyUI history ``outputs`` dict into a list of :class:`Asset`.
 
     *outputs* is the value of ``history[prompt_id]["outputs"]`` — a mapping
-    from node ID to that node's output dictionary.  Only ``"images"`` entries
-    are processed; ``"audio"``, ``"video"``, and other keys are silently
-    skipped (deferred per spec).  Malformed or missing values are skipped
-    defensively, as history dicts arrive from an external source.
+    from node ID to that node's output dictionary.  The keys ``"images"``,
+    ``"audio"``, and ``"video"`` are all processed; any other keys are
+    silently ignored.  Malformed or missing values are skipped defensively,
+    as history dicts arrive from an external source.
 
     Parameters
     ----------
@@ -69,23 +72,24 @@ def extract_assets(outputs: dict[str, Any]) -> list[Asset]:
     for node_output in outputs.values():
         if not isinstance(node_output, dict):
             continue
-        images = node_output.get("images")
-        if not isinstance(images, list):
-            continue
-        for entry in images:
-            if not isinstance(entry, dict):
+        for key in _MEDIA_KEYS:
+            entries = node_output.get(key)
+            if not isinstance(entries, list):
                 continue
-            try:
-                assets.append(
-                    Asset(
-                        filename=entry["filename"],
-                        subfolder=entry["subfolder"],
-                        folder_type=entry["type"],
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    assets.append(
+                        Asset(
+                            filename=entry["filename"],
+                            subfolder=entry["subfolder"],
+                            folder_type=entry["type"],
+                        )
                     )
-                )
-            except (KeyError, TypeError, ValueError):
-                # Missing keys or wrong types — skip gracefully.
-                continue
+                except (KeyError, TypeError, ValueError):
+                    # Missing keys or wrong types — skip gracefully.
+                    continue
     return assets
 
 
