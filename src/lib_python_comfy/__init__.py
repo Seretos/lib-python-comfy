@@ -7,14 +7,17 @@ See `README.md` for usage.
 """
 from __future__ import annotations
 
+from lib_python_comfy.assets import extract_assets, fetch_bytes, save_to_path, view_url
 from lib_python_comfy.client import ComfyClient, ComfyConnectionError
 from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui, txt2img
+from lib_python_comfy.models import Asset
 from lib_python_comfy.serialization import SerializationGuard
 
 __version__ = "0.1.0"
 
 __all__ = [
     "__version__",
+    "Asset",
     "ComfyClient",
     "ComfyConnectionError",
     "SerializationGuard",
@@ -23,4 +26,8 @@ __all__ = [
     "to_api",
     "to_ui",
     "txt2img",
+    "extract_assets",
+    "fetch_bytes",
+    "save_to_path",
+    "view_url",
 ]
