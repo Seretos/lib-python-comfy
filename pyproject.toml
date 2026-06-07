@@ -21,6 +21,9 @@ test = [
   "pytest>=8",
   "pytest-asyncio>=0.23",
 ]
+hf = [
+  "huggingface_hub>=0.20",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

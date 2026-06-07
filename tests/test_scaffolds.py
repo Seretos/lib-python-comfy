@@ -1,4 +1,4 @@
-"""Tests for the graph scaffolds module (ticket #9).
+"""Tests for the graph scaffolds module (ticket #9, #14).
 
 All imports go through the public ``lib_python_comfy`` namespace to verify
 that re-exports and ``__all__`` are wired correctly.
@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 import lib_python_comfy
-from lib_python_comfy import GraphBuilder, txt2img, to_api
+from lib_python_comfy import GraphBuilder, txt2img, txt2audio, txt2video, to_api
 
 
 # ---------------------------------------------------------------------------
@@ -230,3 +230,112 @@ def test_txt2img_builder_open_for_extension():
     result_after = to_api(g)
     assert len(result_after) == 8
     assert result_after[str(extra.id)]["class_type"] == "PreviewImage"
+
+
+# ---------------------------------------------------------------------------
+# txt2audio scaffold (ticket #14)
+# ---------------------------------------------------------------------------
+
+
+def test_txt2audio_returns_graph_builder():
+    """txt2audio returns a GraphBuilder instance."""
+    g = txt2audio()
+    assert isinstance(g, GraphBuilder)
+
+
+def test_txt2audio_in_public_all():
+    """'txt2audio' is listed in lib_python_comfy.__all__."""
+    assert "txt2audio" in lib_python_comfy.__all__
+
+
+def test_txt2audio_importable_from_top_level():
+    """from lib_python_comfy import txt2audio succeeds."""
+    from lib_python_comfy import txt2audio as fn  # noqa: F401
+    assert fn is txt2audio
+
+
+def test_txt2audio_produces_exactly_one_save_audio_node():
+    """to_api(txt2audio()) has exactly one node and it is SaveAudio."""
+    g = txt2audio()
+    result = to_api(g)
+    assert len(result) == 1
+    node = next(iter(result.values()))
+    assert node["class_type"] == "SaveAudio"
+
+
+def test_txt2audio_save_audio_filename_prefix():
+    """The SaveAudio node has filename_prefix='ComfyUI'."""
+    g = txt2audio()
+    result = to_api(g)
+    node = next(iter(result.values()))
+    assert node["inputs"]["filename_prefix"] == "ComfyUI"
+
+
+def test_txt2audio_accepts_keyword_args():
+    """txt2audio accepts positive, negative, and seed keyword arguments."""
+    g = txt2audio(positive="hello", negative="bad", seed=99)
+    assert isinstance(g, GraphBuilder)
+
+
+def test_txt2audio_builder_open_for_extension():
+    """Adding a node after txt2audio increases the count to 2."""
+    g = txt2audio()
+    extra = g.add_node("AudioEncoding", {})
+    result = to_api(g)
+    assert len(result) == 2
+    assert result[str(extra.id)]["class_type"] == "AudioEncoding"
+
+
+# ---------------------------------------------------------------------------
+# txt2video scaffold (ticket #14)
+# ---------------------------------------------------------------------------
+
+
+def test_txt2video_returns_graph_builder():
+    """txt2video returns a GraphBuilder instance."""
+    g = txt2video()
+    assert isinstance(g, GraphBuilder)
+
+
+def test_txt2video_in_public_all():
+    """'txt2video' is listed in lib_python_comfy.__all__."""
+    assert "txt2video" in lib_python_comfy.__all__
+
+
+def test_txt2video_importable_from_top_level():
+    """from lib_python_comfy import txt2video succeeds."""
+    from lib_python_comfy import txt2video as fn  # noqa: F401
+    assert fn is txt2video
+
+
+def test_txt2video_produces_exactly_one_vhs_combine_node():
+    """to_api(txt2video()) has exactly one node and it is VHS_VideoCombine."""
+    g = txt2video()
+    result = to_api(g)
+    assert len(result) == 1
+    node = next(iter(result.values()))
+    assert node["class_type"] == "VHS_VideoCombine"
+
+
+def test_txt2video_vhs_combine_inputs():
+    """The VHS_VideoCombine node has filename_prefix='ComfyUI' and format='video/h264-mp4'."""
+    g = txt2video()
+    result = to_api(g)
+    node = next(iter(result.values()))
+    assert node["inputs"]["filename_prefix"] == "ComfyUI"
+    assert node["inputs"]["format"] == "video/h264-mp4"
+
+
+def test_txt2video_accepts_keyword_args():
+    """txt2video accepts positive, negative, width, height, and seed keyword arguments."""
+    g = txt2video(positive="fly", negative="static", width=1024, height=576, seed=7)
+    assert isinstance(g, GraphBuilder)
+
+
+def test_txt2video_builder_open_for_extension():
+    """Adding a node after txt2video increases the count to 2."""
+    g = txt2video()
+    extra = g.add_node("VideoPostProcess", {})
+    result = to_api(g)
+    assert len(result) == 2
+    assert result[str(extra.id)]["class_type"] == "VideoPostProcess"

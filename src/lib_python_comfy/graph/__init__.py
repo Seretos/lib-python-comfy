@@ -4,7 +4,7 @@ from __future__ import annotations
 from .builder import GraphBuilder, NodeRef
 from .api_format import to_api
 from .ui_format import to_ui
-from .scaffolds import txt2img
+from .scaffolds import txt2img, txt2audio, txt2video
 
 __all__ = [
     "GraphBuilder",
@@ -12,4 +12,6 @@ __all__ = [
     "to_api",
     "to_ui",
     "txt2img",
+    "txt2audio",
+    "txt2video",
 ]

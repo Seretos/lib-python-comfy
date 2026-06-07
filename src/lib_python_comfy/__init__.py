@@ -16,8 +16,10 @@ from lib_python_comfy.discovery import (
     list_samplers,
     list_schedulers,
 )
-from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui, txt2img
+from lib_python_comfy.graph import GraphBuilder, NodeRef, to_api, to_ui, txt2img, txt2audio, txt2video
 from lib_python_comfy.models import Asset
+from lib_python_comfy.preview import PreviewResult, encode_preview
+from lib_python_comfy.publish import publish_asset
 from lib_python_comfy.runner import FlowRunner, JobState, JobStatus, RunResult
 from lib_python_comfy.serialization import SerializationGuard
 from lib_python_comfy.templates import (
@@ -46,6 +48,8 @@ __all__ = [
     "to_api",
     "to_ui",
     "txt2img",
+    "txt2audio",
+    "txt2video",
     "MissingParameterError",
     "TemplateParam",
     "discover_params",
@@ -56,6 +60,9 @@ __all__ = [
     "fetch_bytes",
     "save_to_path",
     "view_url",
+    "publish_asset",
+    "encode_preview",
+    "PreviewResult",
     "list_checkpoints",
     "list_samplers",
     "list_schedulers",
