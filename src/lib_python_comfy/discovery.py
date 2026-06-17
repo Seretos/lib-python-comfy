@@ -12,6 +12,20 @@ from __future__ import annotations
 from lib_python_comfy.client import ComfyClient
 
 
+class NodeTypeNotFoundError(Exception):
+    """Raised when the requested *node_type* is not known to ComfyUI.
+
+    Attributes
+    ----------
+    node_type:
+        The node type name that was not found in the ``/object_info`` response.
+    """
+
+    def __init__(self, node_type: str) -> None:
+        super().__init__(f"node type not found: {node_type!r}")
+        self.node_type = node_type
+
+
 def list_checkpoints(client: ComfyClient) -> list[str]:
     """Return the list of available checkpoint model names.
 
@@ -76,16 +90,26 @@ def get_node_schema(client: ComfyClient, node_type: str) -> dict:
 
     Calls ``GET /object_info/{node_type}`` and extracts
     ``input.required`` and ``input.optional``.  Both sub-dicts default to
-    ``{}`` when the node is absent, ``input`` is missing, or either
-    sub-key is absent.  Raw per-input values are passed through unchanged.
+    ``{}`` when ``input`` is missing or either sub-key is absent.  Raw
+    per-input values are passed through unchanged.
 
     Returns
     -------
     dict
         ``{"required": {...}, "optional": {...}}``
+
+    Raises
+    ------
+    NodeTypeNotFoundError
+        When *node_type* is not present as a top-level key in the
+        ``/object_info/{node_type}`` response.
+    ComfyConnectionError
+        Propagated from the underlying HTTP call on transport failures.
     """
     response = client.get_object_info(node_type)
-    node = response.get(node_type, {})
+    if node_type not in response:
+        raise NodeTypeNotFoundError(node_type)
+    node = response[node_type]
     input_section = node.get("input", {})
     required = input_section.get("required", {})
     optional = input_section.get("optional", {})

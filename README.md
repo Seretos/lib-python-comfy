@@ -41,7 +41,7 @@ pip install -e ".[hf]"
 
 ---
 
-## Public API (31 names)
+## Public API (35 names)
 
 ### Graph building
 
@@ -239,7 +239,7 @@ Supported types: `STR`, `INT`, `FLOAT`, `BOOL`, `SEED`. `SEED` placeholders are 
 Query a live ComfyUI server for available resources.
 
 ```python
-from lib_python_comfy import list_checkpoints, list_samplers, list_schedulers, list_node_types, get_node_schema
+from lib_python_comfy import list_checkpoints, list_samplers, list_schedulers, list_node_types, get_node_schema, NodeTypeNotFoundError
 ```
 
 **`list_checkpoints(client: ComfyClient) -> list[str]`** — available checkpoint model names.
@@ -250,7 +250,9 @@ from lib_python_comfy import list_checkpoints, list_samplers, list_schedulers, l
 
 **`list_node_types(client: ComfyClient) -> list[str]`** — all registered node class types.
 
-**`get_node_schema(client: ComfyClient, node_type: str) -> dict`** — input/output schema for a specific node type.
+**`get_node_schema(client: ComfyClient, node_type: str) -> dict`** — input schema for a specific node type. Returns `{"required": {...}, "optional": {...}}`. Raises `NodeTypeNotFoundError` when *node_type* is not present as a top-level key in the ComfyUI response.
+
+**`NodeTypeNotFoundError`** — raised by `get_node_schema` when the requested node type is unknown. Has a `.node_type` attribute holding the queried name.
 
 ---
 
@@ -278,6 +280,8 @@ Use as a context manager to ensure the connection is closed:
 with ComfyClient("http://127.0.0.1:8188") as client:
     prompt_id = client.queue_prompt(my_workflow)
 ```
+
+**`client.cancel(prompt_id: str) -> bool`** — remove *prompt_id* from the pending queue. Returns `True` if the prompt was found in `queue_pending` at the time of the call; `False` if it was not in the pending queue (running, already completed, or unknown). Raises `ComfyConnectionError` on transport failures.
 
 **`ComfyConnectionError`** — raised when a connection to the server cannot be established.
 

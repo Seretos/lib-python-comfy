@@ -155,24 +155,107 @@ def test_get_queue():
 # ---------------------------------------------------------------------------
 
 
-def test_cancel():
-    captured: list[dict] = []
+def test_cancel_returns_true_when_pending():
+    """cancel() returns True when the id is in queue_pending; issues GET then POST."""
+    calls: list[tuple[str, str]] = []  # (method, path)
+    post_bodies: list[dict] = []
+
+    queue_response = {
+        "queue_running": [],
+        "queue_pending": [
+            [1, "xyz", {}, {}, []],  # [number, prompt_id, prompt_dict, extra_data, outputs]
+        ],
+    }
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/queue"
-        body = json.loads(request.content)
-        captured.append(body)
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":
+            return _json_response(queue_response)
+        # POST
+        post_bodies.append(json.loads(request.content))
         return httpx.Response(200)
 
     client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
-    client.cancel("xyz")
+    result = client.cancel("xyz")
 
-    assert len(captured) == 1
-    assert captured[0] == {"delete": ["xyz"]}
+    assert result is True
+    assert len(calls) == 2
+    assert calls[0] == ("GET", "/queue")
+    assert calls[1] == ("POST", "/queue")
+    assert post_bodies[0] == {"delete": ["xyz"]}
 
 
-def test_cancel_raises_on_http_error():
+def test_cancel_returns_false_when_pending_empty():
+    """cancel() returns False when queue_pending is empty; POST /queue is still issued."""
+    calls: list[tuple[str, str]] = []
+    post_bodies: list[dict] = []
+
+    queue_response = {"queue_running": [], "queue_pending": []}
+
     def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":
+            return _json_response(queue_response)
+        post_bodies.append(json.loads(request.content))
+        return httpx.Response(200)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    result = client.cancel("xyz")
+
+    assert result is False
+    assert len(calls) == 2
+    assert calls[0] == ("GET", "/queue")
+    assert calls[1] == ("POST", "/queue")
+    assert post_bodies[0] == {"delete": ["xyz"]}
+
+
+def test_cancel_returns_false_when_only_running():
+    """cancel() returns False when the id is in queue_running but not queue_pending; POST /queue is still issued."""
+    calls: list[tuple[str, str]] = []
+    post_bodies: list[dict] = []
+
+    queue_response = {
+        "queue_running": [
+            [1, "xyz", {}, {}, []],
+        ],
+        "queue_pending": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":
+            return _json_response(queue_response)
+        post_bodies.append(json.loads(request.content))
+        return httpx.Response(200)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    result = client.cancel("xyz")
+
+    assert result is False
+    assert len(calls) == 2
+    assert calls[0] == ("GET", "/queue")
+    assert calls[1] == ("POST", "/queue")
+    assert post_bodies[0] == {"delete": ["xyz"]}
+
+
+def test_cancel_raises_on_get_http_error():
+    """cancel() raises ComfyConnectionError when the initial GET /queue call fails."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    with pytest.raises(ComfyConnectionError):
+        client.cancel("xyz")
+
+
+def test_cancel_raises_on_post_http_error():
+    """cancel() raises ComfyConnectionError when POST /queue fails (GET succeeds)."""
+    queue_response = {"queue_running": [], "queue_pending": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return _json_response(queue_response)
+        # POST returns 500
         return httpx.Response(500)
 
     client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
