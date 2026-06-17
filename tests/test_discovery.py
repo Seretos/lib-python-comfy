@@ -12,6 +12,7 @@ import pytest
 from lib_python_comfy import (
     ComfyClient,
     ComfyConnectionError,
+    NodeTypeNotFoundError,
     get_node_schema,
     list_checkpoints,
     list_node_types,
@@ -176,9 +177,20 @@ def test_get_node_schema_happy_path():
 
 
 def test_get_node_schema_missing_node():
-    """Node absent from response → {"required": {}, "optional": {}}."""
+    """Node absent from response → NodeTypeNotFoundError (regression: was silent no-op)."""
     client = _make_client({})
-    schema = get_node_schema(client, "NonExistentNode")
+    with pytest.raises(NodeTypeNotFoundError) as exc_info:
+        get_node_schema(client, "NonExistentNode")
+    err = exc_info.value
+    assert err.node_type == "NonExistentNode"
+    assert "NonExistentNode" in str(err)
+
+
+def test_get_node_schema_no_inputs_returns_empty_dicts():
+    """Node present in response but has no inputs at all → {"required": {}, "optional": {}}."""
+    data = {"EmptyNode": {}}  # present as a top-level key, but no "input" key
+    client = _make_client(data)
+    schema = get_node_schema(client, "EmptyNode")
     assert schema == {"required": {}, "optional": {}}
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 from lib_python_comfy.assets import extract_assets, fetch_bytes, save_to_path, view_url
 from lib_python_comfy.client import ComfyClient, ComfyConnectionError
 from lib_python_comfy.discovery import (
+    NodeTypeNotFoundError,
     get_node_schema,
     list_checkpoints,
     list_node_types,
@@ -68,4 +69,5 @@ __all__ = [
     "list_schedulers",
     "list_node_types",
     "get_node_schema",
+    "NodeTypeNotFoundError",
 ]

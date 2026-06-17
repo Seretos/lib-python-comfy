@@ -177,9 +177,33 @@ class ComfyClient:
         """Return the current queue status (``GET /queue``)."""
         return self._get("/queue").json()
 
-    def cancel(self, prompt_id: str) -> None:
-        """Remove *prompt_id* from the pending queue (``POST /queue``)."""
+    def cancel(self, prompt_id: str) -> bool:
+        """Remove *prompt_id* from the pending queue (``POST /queue``).
+
+        Checks the live queue before posting the delete request so the return
+        value reflects whether the prompt was actually pending at the time of
+        the call.
+
+        Returns
+        -------
+        bool
+            ``True`` if *prompt_id* was found in ``queue_pending`` (and the
+            delete request was sent); ``False`` if it was not in the pending
+            queue — either because it is currently running, already completed,
+            or the id is unknown.
+
+        Raises
+        ------
+        ComfyConnectionError
+            On any transport/network failure during either HTTP call.
+        """
+        queue = self.get_queue()
+        # Queue entry shape: [number, prompt_id, prompt_dict, extra_data, outputs_to_execute]
+        was_pending = any(
+            entry[1] == prompt_id for entry in queue.get("queue_pending", [])
+        )
         self._post("/queue", json={"delete": [prompt_id]})
+        return was_pending
 
     def get_object_info(self, node_type: str | None = None) -> dict:
         """Return object/node metadata.
