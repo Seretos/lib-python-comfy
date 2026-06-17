@@ -83,9 +83,22 @@ g = txt2img(
 prompt = to_api(g)
 ```
 
-**`txt2audio(*, positive="", negative="", seed=0) -> GraphBuilder`** — minimal stub with one SaveAudio node; open for extension.
+**`txt2audio(*, model, positive, negative="", seconds=47.0, batch_size=1, sample_rate=44100, steps=20, cfg=3.5, sampler_name="dpmpp_3m_sde_gpu", scheduler="exponential", seed=0) -> GraphBuilder`** — pre-wired Stable Audio graph (7 nodes, fully linked):
 
-**`txt2video(*, positive="", negative="", width=512, height=512, seed=0) -> GraphBuilder`** — minimal stub with one VHS_VideoCombine node; open for extension.
+```python
+g = txt2audio(
+    model="stable_audio_open_1.0.safetensors",
+    positive="cinematic ambient music",
+    negative="noise, distortion",
+    seconds=47.0,
+    steps=20,
+    cfg=3.5,
+    seed=42,
+)
+prompt = to_api(g)
+```
+
+**`txt2video(*, positive="", negative="", width=512, height=512, seed=0) -> GraphBuilder`** — always raises `NotImplementedError`; text-to-video generation requires a custom node (e.g. `VHS_VideoCombine` from ComfyUI-VideoHelper-Suite) that is not present in a stock ComfyUI install. Build the graph directly with `GraphBuilder` after installing a compatible video node.
 
 ---
 
@@ -196,7 +209,7 @@ from lib_python_comfy import (
 )
 ```
 
-**`list_builtin_templates() -> list[str]`** — return stem names of all built-in templates (e.g. `["txt2img_basic", "generate_audio", "generate_video"]`).
+**`list_builtin_templates() -> list[str]`** — return stem names of all built-in templates (e.g. `["txt2img_basic"]`).
 
 **`load_builtin_template(name: str) -> dict`** — load a built-in template by stem name. Raises `FileNotFoundError` for unknown names.
 

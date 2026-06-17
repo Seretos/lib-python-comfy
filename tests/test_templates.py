@@ -167,12 +167,29 @@ def test_render_output_shape_matches_api_format():
     top-level value has 'class_type' and 'inputs' keys — same shape as to_api().
     """
     template = load_builtin_template("txt2img_basic")
-    result = render(template, {"POSITIVE_PROMPT": "a cat", "STEPS": 20})
+    result = render(template, {"POSITIVE_PROMPT": "a cat", "STEPS": 20, "MODEL": "some.ckpt"})
     assert isinstance(result, dict)
     assert len(result) > 0
     for node_val in result.values():
         assert "class_type" in node_val, f"Missing 'class_type' in {node_val!r}"
         assert "inputs" in node_val, f"Missing 'inputs' in {node_val!r}"
+
+
+def test_txt2img_basic_model_param_is_required():
+    """Omitting MODEL from txt2img_basic template raises MissingParameterError."""
+    template = load_builtin_template("txt2img_basic")
+    with pytest.raises(MissingParameterError):
+        render(template, {"POSITIVE_PROMPT": "a cat", "STEPS": 20})
+
+
+def test_txt2img_basic_model_param_is_substituted():
+    """The supplied MODEL value lands in CheckpointLoaderSimple ckpt_name."""
+    template = load_builtin_template("txt2img_basic")
+    result = render(template, {"POSITIVE_PROMPT": "a cat", "STEPS": 20, "MODEL": "my-model.safetensors"})
+    ckpt_node = next(
+        node for node in result.values() if node["class_type"] == "CheckpointLoaderSimple"
+    )
+    assert ckpt_node["inputs"]["ckpt_name"] == "my-model.safetensors"
 
 
 def test_render_does_not_mutate_template():

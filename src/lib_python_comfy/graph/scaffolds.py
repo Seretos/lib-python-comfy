@@ -100,29 +100,94 @@ def txt2img(
 
 def txt2audio(
     *,
-    positive: str = "",
+    model: str,
+    positive: str,
     negative: str = "",
+    seconds: float = 47.0,
+    batch_size: int = 1,
+    sample_rate: int = 44100,
+    steps: int = 20,
+    cfg: float = 3.5,
+    sampler_name: str = "dpmpp_3m_sde_gpu",
+    scheduler: str = "exponential",
     seed: int = 0,
 ) -> GraphBuilder:
-    """Return a :class:`GraphBuilder` stub for a text-to-audio pipeline.
+    """Return a :class:`GraphBuilder` pre-wired for a Stable Audio pipeline.
 
-    This is a **minimal stub** open for extension.  The graph contains a
-    single SaveAudio node with no links — callers are expected to append the
-    audio-generation nodes and wire them up before serialising.
+    Builds the canonical ComfyUI Stable Audio graph::
+
+        CheckpointLoaderSimple
+            ├─[MODEL]──────────────► KSampler ─[LATENT]─► VAEDecodeAudio ─[AUDIO]─► SaveAudio
+            ├─[CLIP]───► CLIPTextEncode(+) ─[CONDITIONING]─► KSampler
+            ├─[CLIP]───► CLIPTextEncode(-) ─[CONDITIONING]─► KSampler
+            └─[VAE]────────────────────────────────────────► VAEDecodeAudio
+        EmptyLatentAudio ─[LATENT]─► KSampler
+
+    The returned builder is open for further extension — callers may append
+    additional nodes and links before serialising with :func:`to_api` or
+    :func:`to_ui`.
 
     Args:
-        positive: Positive prompt text (stored for caller reference; not wired
-                  to any node in this stub).
-        negative: Negative prompt text (stored for caller reference; not wired
-                  to any node in this stub).
-        seed: RNG seed (stored for caller reference; not wired to any node in
-              this stub).
+        model: Checkpoint filename as recognised by ComfyUI
+               (e.g. ``"stable_audio_open_1.0.safetensors"``).
+        positive: Positive prompt text fed into CLIPTextEncode.
+        negative: Negative prompt text fed into CLIPTextEncode (default ``""``).
+        seconds: Duration of the generated audio in seconds (default 47.0).
+        batch_size: Number of audio samples to generate (default 1).
+        sample_rate: Sample rate in Hz (default 44100).
+        steps: Number of KSampler denoising steps (default 20).
+        cfg: Classifier-free guidance scale (default 3.5).
+        sampler_name: KSampler algorithm name (default ``"dpmpp_3m_sde_gpu"``).
+        scheduler: KSampler scheduler name (default ``"exponential"``).
+        seed: RNG seed for the KSampler (default 0).
 
     Returns:
-        A :class:`GraphBuilder` with 1 node (SaveAudio) and no links.
+        A configured :class:`GraphBuilder` with 7 nodes and 9 links.
     """
     g = GraphBuilder()
-    g.add_node("SaveAudio", {"filename_prefix": "ComfyUI"})
+
+    ckpt = g.add_node("CheckpointLoaderSimple", {"ckpt_name": model})
+    clip_pos = g.add_node("CLIPTextEncode", {"text": positive})
+    clip_neg = g.add_node("CLIPTextEncode", {"text": negative})
+    latent = g.add_node(
+        "EmptyLatentAudio",
+        {"seconds": seconds, "batch_size": batch_size, "sample_rate": sample_rate},
+    )
+    ksampler = g.add_node(
+        "KSampler",
+        {
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler_name,
+            "scheduler": scheduler,
+            "denoise": 1.0,
+        },
+    )
+    vae_decode = g.add_node("VAEDecodeAudio", {})
+    save_audio = g.add_node("SaveAudio", {"filename_prefix": "ComfyUI"})
+
+    # CheckpointLoaderSimple outputs: 0=MODEL, 1=CLIP, 2=VAE
+    g.link(ckpt, 0, ksampler, "model")
+    g.link(ckpt, 1, clip_pos, "clip")
+    g.link(ckpt, 1, clip_neg, "clip")
+
+    # CLIPTextEncode outputs: 0=CONDITIONING
+    g.link(clip_pos, 0, ksampler, "positive")
+    g.link(clip_neg, 0, ksampler, "negative")
+
+    # EmptyLatentAudio outputs: 0=LATENT
+    g.link(latent, 0, ksampler, "latent_image")
+
+    # KSampler outputs: 0=LATENT
+    g.link(ksampler, 0, vae_decode, "samples")
+
+    # CheckpointLoaderSimple slot 2 = VAE
+    g.link(ckpt, 2, vae_decode, "vae")
+
+    # VAEDecodeAudio outputs: 0=AUDIO
+    g.link(vae_decode, 0, save_audio, "audio")
+
     return g
 
 
@@ -134,27 +199,33 @@ def txt2video(
     height: int = 512,
     seed: int = 0,
 ) -> GraphBuilder:
-    """Return a :class:`GraphBuilder` stub for a text-to-video pipeline.
+    """Return a :class:`GraphBuilder` pre-wired for a text-to-video pipeline.
 
-    This is a **minimal stub** open for extension.  The graph contains a
-    single VHS_VideoCombine node with no links — callers are expected to
-    append the video-generation nodes and wire them up before serialising.
+    .. note::
+
+        This function always raises :exc:`NotImplementedError` because
+        text-to-video generation requires a custom node
+        (e.g. ``VHS_VideoCombine`` from ComfyUI-VideoHelper-Suite) that is
+        **not** present in a stock ComfyUI install.
+
+    To build a video graph, install a compatible video node and wire it
+    directly with :class:`~lib_python_comfy.graph.GraphBuilder`.
 
     Args:
-        positive: Positive prompt text (stored for caller reference; not wired
-                  to any node in this stub).
-        negative: Negative prompt text (stored for caller reference; not wired
-                  to any node in this stub).
-        width: Output width in pixels (default 512; stored for caller
-               reference; not wired to any node in this stub).
-        height: Output height in pixels (default 512; stored for caller
-                reference; not wired to any node in this stub).
-        seed: RNG seed (stored for caller reference; not wired to any node in
-              this stub).
+        positive: Positive prompt text.
+        negative: Negative prompt text.
+        width: Output width in pixels (default 512).
+        height: Output height in pixels (default 512).
+        seed: RNG seed (default 0).
 
-    Returns:
-        A :class:`GraphBuilder` with 1 node (VHS_VideoCombine) and no links.
+    Raises:
+        NotImplementedError: Always — a compatible video node must be
+            installed and wired manually.
     """
-    g = GraphBuilder()
-    g.add_node("VHS_VideoCombine", {"filename_prefix": "ComfyUI", "format": "video/h264-mp4"})
-    return g
+    raise NotImplementedError(
+        "txt2video requires a custom video-generation node (e.g. "
+        "ComfyUI-VideoHelper-Suite / VHS_VideoCombine) that is not present "
+        "in a stock ComfyUI install. "
+        "Build the graph directly with GraphBuilder after installing a "
+        "compatible video node."
+    )
