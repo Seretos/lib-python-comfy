@@ -233,13 +233,13 @@ def test_txt2img_builder_open_for_extension():
 
 
 # ---------------------------------------------------------------------------
-# txt2audio scaffold (ticket #14)
+# txt2audio scaffold (ticket #29)
 # ---------------------------------------------------------------------------
 
 
 def test_txt2audio_returns_graph_builder():
     """txt2audio returns a GraphBuilder instance."""
-    g = txt2audio()
+    g = txt2audio(model="stable_audio.safetensors", positive="ambient music")
     assert isinstance(g, GraphBuilder)
 
 
@@ -254,47 +254,183 @@ def test_txt2audio_importable_from_top_level():
     assert fn is txt2audio
 
 
-def test_txt2audio_produces_exactly_one_save_audio_node():
-    """to_api(txt2audio()) has exactly one node and it is SaveAudio."""
-    g = txt2audio()
+def test_txt2audio_produces_seven_nodes():
+    """to_api(txt2audio(...)) has exactly 7 entries."""
+    g = txt2audio(model="stable_audio.safetensors", positive="ambient music")
     result = to_api(g)
-    assert len(result) == 1
-    node = next(iter(result.values()))
-    assert node["class_type"] == "SaveAudio"
+    assert len(result) == 7
 
 
-def test_txt2audio_save_audio_filename_prefix():
-    """The SaveAudio node has filename_prefix='ComfyUI'."""
-    g = txt2audio()
+def test_txt2audio_node_class_types():
+    """The set of class_type values is exactly the 6 canonical node types."""
+    g = txt2audio(model="stable_audio.safetensors", positive="ambient music")
     result = to_api(g)
-    node = next(iter(result.values()))
-    assert node["inputs"]["filename_prefix"] == "ComfyUI"
+    types = {entry["class_type"] for entry in result.values()}
+    assert types == {
+        "CheckpointLoaderSimple",
+        "CLIPTextEncode",
+        "EmptyLatentAudio",
+        "KSampler",
+        "VAEDecodeAudio",
+        "SaveAudio",
+    }
+
+
+def test_txt2audio_ckpt_name_equals_model():
+    """The CheckpointLoaderSimple ckpt_name is the literal supplied model."""
+    g = txt2audio(model="my-audio-model.safetensors", positive="rain")
+    result = to_api(g)
+    ckpt_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "CheckpointLoaderSimple"
+    )
+    assert ckpt_entry["inputs"]["ckpt_name"] == "my-audio-model.safetensors"
+
+
+def test_txt2audio_ksampler_model_link():
+    """KSampler 'model' input is linked from CheckpointLoaderSimple slot 0."""
+    g = txt2audio(model="m.safetensors", positive="beat")
+    result = to_api(g)
+    ckpt_id = next(
+        node_id
+        for node_id, entry in result.items()
+        if entry["class_type"] == "CheckpointLoaderSimple"
+    )
+    ksampler_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "KSampler"
+    )
+    assert ksampler_entry["inputs"]["model"] == [ckpt_id, 0]
+
+
+def test_txt2audio_ksampler_positive_link():
+    """KSampler 'positive' input is linked from the positive CLIPTextEncode slot 0."""
+    g = txt2audio(model="m.safetensors", positive="beat")
+    result = to_api(g)
+    ksampler_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "KSampler"
+    )
+    positive_link = ksampler_entry["inputs"]["positive"]
+    assert isinstance(positive_link, list)
+    assert len(positive_link) == 2
+    assert positive_link[1] == 0
+    assert result[positive_link[0]]["class_type"] == "CLIPTextEncode"
+
+
+def test_txt2audio_ksampler_negative_link():
+    """KSampler 'negative' input is linked from the negative CLIPTextEncode slot 0."""
+    g = txt2audio(model="m.safetensors", positive="beat", negative="noise")
+    result = to_api(g)
+    ksampler_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "KSampler"
+    )
+    negative_link = ksampler_entry["inputs"]["negative"]
+    assert isinstance(negative_link, list)
+    assert len(negative_link) == 2
+    assert negative_link[1] == 0
+    assert result[negative_link[0]]["class_type"] == "CLIPTextEncode"
+
+
+def test_txt2audio_positive_and_negative_use_distinct_clip_nodes():
+    """KSampler 'positive' and 'negative' links point to two different CLIPTextEncode nodes."""
+    g = txt2audio(model="m.safetensors", positive="beat", negative="noise")
+    result = to_api(g)
+    ksampler_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "KSampler"
+    )
+    pos_id = ksampler_entry["inputs"]["positive"][0]
+    neg_id = ksampler_entry["inputs"]["negative"][0]
+    assert pos_id != neg_id
+
+
+def test_txt2audio_vae_decode_audio_links():
+    """VAEDecodeAudio 'samples' comes from KSampler slot 0; 'vae' from CheckpointLoaderSimple slot 2."""
+    g = txt2audio(model="m.safetensors", positive="beat")
+    result = to_api(g)
+    ckpt_id = next(
+        node_id
+        for node_id, entry in result.items()
+        if entry["class_type"] == "CheckpointLoaderSimple"
+    )
+    ksampler_id = next(
+        node_id
+        for node_id, entry in result.items()
+        if entry["class_type"] == "KSampler"
+    )
+    vae_decode_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "VAEDecodeAudio"
+    )
+    assert vae_decode_entry["inputs"]["samples"] == [ksampler_id, 0]
+    assert vae_decode_entry["inputs"]["vae"] == [ckpt_id, 2]
+
+
+def test_txt2audio_save_audio_link():
+    """SaveAudio 'audio' input is linked from VAEDecodeAudio slot 0."""
+    g = txt2audio(model="m.safetensors", positive="beat")
+    result = to_api(g)
+    vae_decode_id = next(
+        node_id
+        for node_id, entry in result.items()
+        if entry["class_type"] == "VAEDecodeAudio"
+    )
+    save_audio_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "SaveAudio"
+    )
+    assert save_audio_entry["inputs"]["audio"] == [vae_decode_id, 0]
+
+
+def test_txt2audio_model_is_required():
+    """txt2audio() without 'model' raises TypeError."""
+    with pytest.raises(TypeError):
+        txt2audio(positive="hi")  # type: ignore[call-arg]
 
 
 def test_txt2audio_accepts_keyword_args():
-    """txt2audio accepts positive, negative, and seed keyword arguments."""
-    g = txt2audio(positive="hello", negative="bad", seed=99)
+    """txt2audio accepts all keyword arguments including model and optional params."""
+    g = txt2audio(
+        model="m.safetensors",
+        positive="hello",
+        negative="bad",
+        seconds=10.0,
+        batch_size=2,
+        sample_rate=22050,
+        steps=30,
+        cfg=5.0,
+        sampler_name="euler",
+        scheduler="normal",
+        seed=99,
+    )
     assert isinstance(g, GraphBuilder)
 
 
 def test_txt2audio_builder_open_for_extension():
-    """Adding a node after txt2audio increases the count to 2."""
-    g = txt2audio()
-    extra = g.add_node("AudioEncoding", {})
+    """Adding a node after txt2audio increases the node count to 8."""
+    g = txt2audio(model="m.safetensors", positive="beat")
+    extra = g.add_node("AudioPostProcess", {})
     result = to_api(g)
-    assert len(result) == 2
-    assert result[str(extra.id)]["class_type"] == "AudioEncoding"
+    assert len(result) == 8
+    assert result[str(extra.id)]["class_type"] == "AudioPostProcess"
 
 
 # ---------------------------------------------------------------------------
-# txt2video scaffold (ticket #14)
+# txt2video scaffold (ticket #29)
 # ---------------------------------------------------------------------------
 
 
-def test_txt2video_returns_graph_builder():
-    """txt2video returns a GraphBuilder instance."""
-    g = txt2video()
-    assert isinstance(g, GraphBuilder)
+def test_txt2video_raises_not_implemented():
+    """txt2video() raises NotImplementedError."""
+    with pytest.raises(NotImplementedError):
+        txt2video()
+
+
+def test_txt2video_error_message_mentions_video_node():
+    """The NotImplementedError message mentions the video custom node."""
+    with pytest.raises(NotImplementedError, match="VHS_VideoCombine"):
+        txt2video()
+
+
+def test_txt2video_raises_with_kwargs():
+    """txt2video() raises NotImplementedError regardless of keyword arguments."""
+    with pytest.raises(NotImplementedError):
+        txt2video(positive="fly", negative="static", width=1024, height=576, seed=7)
 
 
 def test_txt2video_in_public_all():
@@ -306,36 +442,3 @@ def test_txt2video_importable_from_top_level():
     """from lib_python_comfy import txt2video succeeds."""
     from lib_python_comfy import txt2video as fn  # noqa: F401
     assert fn is txt2video
-
-
-def test_txt2video_produces_exactly_one_vhs_combine_node():
-    """to_api(txt2video()) has exactly one node and it is VHS_VideoCombine."""
-    g = txt2video()
-    result = to_api(g)
-    assert len(result) == 1
-    node = next(iter(result.values()))
-    assert node["class_type"] == "VHS_VideoCombine"
-
-
-def test_txt2video_vhs_combine_inputs():
-    """The VHS_VideoCombine node has filename_prefix='ComfyUI' and format='video/h264-mp4'."""
-    g = txt2video()
-    result = to_api(g)
-    node = next(iter(result.values()))
-    assert node["inputs"]["filename_prefix"] == "ComfyUI"
-    assert node["inputs"]["format"] == "video/h264-mp4"
-
-
-def test_txt2video_accepts_keyword_args():
-    """txt2video accepts positive, negative, width, height, and seed keyword arguments."""
-    g = txt2video(positive="fly", negative="static", width=1024, height=576, seed=7)
-    assert isinstance(g, GraphBuilder)
-
-
-def test_txt2video_builder_open_for_extension():
-    """Adding a node after txt2video increases the count to 2."""
-    g = txt2video()
-    extra = g.add_node("VideoPostProcess", {})
-    result = to_api(g)
-    assert len(result) == 2
-    assert result[str(extra.id)]["class_type"] == "VideoPostProcess"
