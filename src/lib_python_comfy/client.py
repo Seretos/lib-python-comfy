@@ -6,7 +6,7 @@ the mechanism.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Never
 
 import httpx
 
@@ -16,7 +16,17 @@ class ComfyConnectionError(Exception):
 
     The original ``httpx`` exception is always chained as ``__cause__`` so
     callers can inspect it without coupling their code to ``httpx`` directly.
+
+    Attributes
+    ----------
+    detail:
+        Parsed JSON body from the server response, or ``None`` when the
+        response carried no JSON body (network errors, plain-text responses).
     """
+
+    def __init__(self, message: str, *, detail: object = None) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 class ComfyClient:
@@ -63,6 +73,44 @@ class ComfyClient:
         """Build an absolute URL from a relative *path* (must start with ``/``)."""
         return f"{self._base_url}{path}"
 
+    def _raise_http_error(self, err: httpx.HTTPError) -> Never:
+        """Normalize an ``httpx.HTTPError`` into a ``ComfyConnectionError``.
+
+        For ``httpx.HTTPStatusError`` (raised by ``raise_for_status``):
+
+        - strips the MDN boilerplate URL appended by httpx;
+        - parses the response body as JSON and stores it in ``detail``;
+        - for 404 responses that carry a ``filename`` query parameter,
+          produces a terse ``"file not found: <filename>"`` message instead.
+
+        For all other ``httpx.HTTPError`` subclasses (``ConnectError``,
+        ``TimeoutException``, …) the message is passed through as-is with
+        ``detail=None``.
+        """
+        if isinstance(err, httpx.HTTPStatusError):
+            # Strip MDN boilerplate appended by httpx on a new line:
+            # "… \nFor more information check: https://developer.mozilla.org/…"
+            raw_msg = str(err)
+            clean_msg = raw_msg.split("\nFor more information")[0].strip()
+
+            detail: object = None
+            try:
+                detail = err.response.json()
+            except Exception:
+                pass
+
+            # 404 with a filename param → terse "file not found: <name>" message
+            if err.response.status_code == 404:
+                params = dict(err.request.url.params)
+                filename = params.get("filename")
+                if filename:
+                    clean_msg = f"file not found: {filename}"
+
+            raise ComfyConnectionError(clean_msg, detail=detail) from err
+
+        # Network-level errors (ConnectError, TimeoutException, …): no response body
+        raise ComfyConnectionError(str(err)) from err
+
     def _get(self, path: str, **params: str) -> httpx.Response:
         url = self._url(path)
         try:
@@ -70,7 +118,7 @@ class ComfyClient:
             resp.raise_for_status()
             return resp
         except httpx.HTTPError as err:
-            raise ComfyConnectionError(str(err)) from err
+            self._raise_http_error(err)
 
     def _post(self, path: str, json: Any = None) -> httpx.Response:
         url = self._url(path)
@@ -79,7 +127,7 @@ class ComfyClient:
             resp.raise_for_status()
             return resp
         except httpx.HTTPError as err:
-            raise ComfyConnectionError(str(err)) from err
+            self._raise_http_error(err)
 
     # ------------------------------------------------------------------
     # Public API

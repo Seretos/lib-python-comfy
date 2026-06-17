@@ -306,3 +306,54 @@ def test_connection_error_chains_original_cause():
         client.queue_prompt({})
     assert exc_info.value.__cause__ is not None
     assert isinstance(exc_info.value.__cause__, httpx.ConnectError)
+
+
+# ---------------------------------------------------------------------------
+# Error contract — detail preservation and MDN URL stripping
+# ---------------------------------------------------------------------------
+
+
+def test_queue_prompt_400_preserves_json_detail():
+    body = {"error": "invalid input", "node_id": "KSampler", "message": "bad param"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=body)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    with pytest.raises(ComfyConnectionError) as exc_info:
+        client.queue_prompt({"node1": {}})
+    err = exc_info.value
+    assert err.detail == body
+    assert "developer.mozilla.org" not in str(err)
+
+
+def test_queue_prompt_400_no_json_body():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    with pytest.raises(ComfyConnectionError) as exc_info:
+        client.queue_prompt({"node1": {}})
+    assert exc_info.value.detail is None
+
+
+def test_view_bytes_404_terse_message():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    with pytest.raises(ComfyConnectionError) as exc_info:
+        client.view_bytes(filename="missing.png", subfolder="", type="output")
+    err = exc_info.value
+    assert str(err) == "file not found: missing.png"
+    assert err.detail is None
+
+
+def test_http_error_strips_mdn_url():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    client = ComfyClient("http://localhost:8188", transport=_mock_transport(handler))
+    with pytest.raises(ComfyConnectionError) as exc_info:
+        client.get_history()
+    assert "developer.mozilla.org" not in str(exc_info.value)
