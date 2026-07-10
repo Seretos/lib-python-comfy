@@ -63,7 +63,7 @@ g.link(source_node, output_slot, target_node, "input_name")
 
 **`to_api(builder: GraphBuilder) -> dict`** — serialise to ComfyUI API format (same shape as `/prompt` expects).
 
-**`to_ui(builder: GraphBuilder) -> dict`** — serialise to ComfyUI UI format (for loading into the web UI).
+**`to_ui(builder: GraphBuilder) -> dict`** — serialise to ComfyUI UI format (for loading into the web UI). For the known scaffold node types (see `txt2img`/`txt2audio` below), slot types on `inputs`/`outputs`/links and each node's `widgets_values` are resolved to their real ComfyUI values instead of the `"UNKNOWN"` placeholder; unrecognised node types still fall back to `"UNKNOWN"`/`OUTPUT_N` and omit `widgets_values`. The top-level dict also includes `last_node_id` and `last_link_id` (the max node/link id present, or `0` for an empty graph).
 
 **`txt2img(*, model, positive, negative, width=512, height=512, steps=20, cfg=7.0, sampler_name="euler", scheduler="normal", seed=0) -> GraphBuilder`** — pre-wired text-to-image scaffold (7 nodes, fully linked):
 
