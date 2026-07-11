@@ -80,7 +80,7 @@ def to_ui(graph: GraphBuilder) -> dict:
             "id": node.id,
             "type": node.class_type,
             "pos": [(node.id - 1) * 200, 0],
-            "size": {"0": 140, "1": 80},
+            "size": [140, 80],
             "flags": {},
             "order": index,
             "mode": 0,
