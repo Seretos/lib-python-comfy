@@ -127,6 +127,18 @@ def test_txt2img_save_image_widgets_values():
     assert save_image["widgets_values"] == ["ComfyUI"]
 
 
+def test_txt2img_node_size_is_a_list_not_a_dict():
+    """node['size'] must be a [w, h] list (litegraph indexes size[0]/size[1]);
+    a dict silently breaks link-curve anchor math (ticket #37)."""
+    g = txt2img(model="m.safetensors", positive="cat", negative="")
+    result = to_ui(g)
+    assert len(result["nodes"]) > 0
+    for node in result["nodes"]:
+        assert isinstance(node["size"], list), (node["type"], node["size"])
+        assert len(node["size"]) == 2
+        assert node["size"] == [140, 80]
+
+
 def test_txt2img_vae_decode_has_no_widgets_values_key():
     """VAEDecode has no widgets, so widgets_values must be omitted entirely."""
     g = txt2img(model="m.safetensors", positive="cat", negative="")
