@@ -82,6 +82,13 @@ so it can update its pin to the new `vX.Y.Z`.
   invalid token never fails the release.
 - **Idempotent:** if an open issue with the same title already exists in
   the consumer, the step skips creating a duplicate.
+- **Project board:** a follow-up step adds the ticket to the
+  `users/Seretos/projects/2` board via `gh project item-add`, using a
+  separate `PROJECT_BOARD_TOKEN` secret (a classic PAT with the `project`
+  scope, or a fine-grained PAT with account-level Projects: write — not
+  repo-scoped, so the same token value is reused across every repo in the
+  ecosystem that has this step). Missing/invalid token → skipped cleanly,
+  the ticket itself still opens normally.
 - **Manual fallback:** if the automatic step was skipped or failed, re-file
   via the `open-dep-ticket` workflow:
   `gh workflow run open-dep-ticket --field version=X.Y.Z`
