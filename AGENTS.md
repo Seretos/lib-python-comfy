@@ -74,21 +74,22 @@ so it can update its pin to the new `vX.Y.Z`.
 - **Trigger:** every `release.yml` run, immediately after the GitHub
   Release is created.
 - **Prerequisite — `COMFY_TICKET_TOKEN`:** a fine-grained PAT scoped to
-  `Seretos/agent-comfy` with **Issues: write**, stored as a repo secret
-  on `lib-python-comfy`. The built-in `GITHUB_TOKEN` cannot create issues
-  in a foreign repo. A human must create this secret before the first
-  release; until then the step is silently skipped.
+  `Seretos/agent-comfy` with **Issues: write**, plus account-level
+  **Projects: write** (fine-grained PATs carry account permissions
+  alongside repository permissions in the same token), stored as a repo
+  secret on `lib-python-comfy`. The built-in `GITHUB_TOKEN` cannot create
+  issues in a foreign repo. A human must create this secret before the
+  first release; until then the step is silently skipped.
 - **Non-blocking:** the step is `continue-on-error: true`, so a missing or
   invalid token never fails the release.
 - **Idempotent:** if an open issue with the same title already exists in
   the consumer, the step skips creating a duplicate.
 - **Project board:** a follow-up step adds the ticket to the
-  `users/Seretos/projects/2` board via `gh project item-add`, using a
-  separate `PROJECT_BOARD_TOKEN` secret (a classic PAT with the `project`
-  scope, or a fine-grained PAT with account-level Projects: write — not
-  repo-scoped, so the same token value is reused across every repo in the
-  ecosystem that has this step). Missing/invalid token → skipped cleanly,
-  the ticket itself still opens normally.
+  `users/Seretos/projects/2` board via `gh project item-add`, reusing the
+  same `COMFY_TICKET_TOKEN` (its account-level Projects: write permission
+  authorizes the board-add) — no separate secret to create or maintain.
+  Missing/invalid token → skipped cleanly, the ticket itself still opens
+  normally.
 - **Manual fallback:** if the automatic step was skipped or failed, re-file
   via the `open-dep-ticket` workflow:
   `gh workflow run open-dep-ticket --field version=X.Y.Z`
