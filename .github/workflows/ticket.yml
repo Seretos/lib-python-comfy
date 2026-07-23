@@ -48,9 +48,10 @@ jobs:
         # A YAML block scalar holds the markdown verbatim and ${{ }} still
         # expands. Bash just references "$TITLE"/"$BODY".
         env:
-          # COMFY_TICKET_TOKEN also needs account-level "Projects: write"
-          # so the board-add step further down authenticates with this same
-          # token — no separate secret to maintain.
+          # COMFY_TICKET_TOKEN must be a classic PAT with the `repo` and
+          # `project` scopes — fine-grained PATs have no Projects permission
+          # at all, so the board-add step further down authenticates with
+          # this same classic-PAT secret — no separate secret to maintain.
           GH_TOKEN: ${{ secrets.COMFY_TICKET_TOKEN }}
           TITLE: "chore(deps): bump lib-python-comfy to v${{ inputs.version }}"
           BODY: |
@@ -98,8 +99,8 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          # Reuses COMFY_TICKET_TOKEN, which carries account-level
-          # "Projects: write" alongside its repo-scoped "Issues: write".
+          # Reuses COMFY_TICKET_TOKEN, which must be a classic PAT carrying
+          # both `repo` and `project` scopes.
           GH_TOKEN: ${{ secrets.COMFY_TICKET_TOKEN }}
         run: |
           gh project item-add 2 --owner Seretos --url "${{ steps.file_comfy.outputs.issue_url }}"
