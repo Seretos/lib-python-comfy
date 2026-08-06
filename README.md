@@ -83,7 +83,7 @@ g = txt2img(
 prompt = to_api(g)
 ```
 
-**`txt2audio(*, model, positive, negative="", seconds=47.0, batch_size=1, sample_rate=44100, steps=20, cfg=3.5, sampler_name="dpmpp_3m_sde_gpu", scheduler="exponential", seed=0) -> GraphBuilder`** — pre-wired Stable Audio graph (7 nodes, fully linked):
+**`txt2audio(*, model, positive, negative="", seconds=47.0, batch_size=1, sample_rate=44100, steps=20, cfg=3.5, sampler_name="dpmpp_3m_sde_gpu", scheduler="exponential", seed=0, clip_name=None, clip_type="stable_audio", seconds_start=0.0) -> GraphBuilder`** — pre-wired Stable Audio graph. By default (no `clip_name`) this is 7 nodes, fully linked, routing `CLIPTextEncode` from the checkpoint's own `CLIP` output:
 
 ```python
 g = txt2audio(
@@ -94,6 +94,24 @@ g = txt2audio(
     steps=20,
     cfg=3.5,
     seed=42,
+)
+prompt = to_api(g)
+```
+
+**Checkpoints that ship no bundled text encoder** (e.g. `stable_audio_open_1.0.safetensors`) fail at execution time with ComfyUI's `clip input is invalid: None`, because the default graph above routes `CLIPTextEncode` from the checkpoint. Pass `clip_name` to load the text encoder from a separate `CLIPLoader` node instead — this also inserts the `ConditioningStableAudio` stage and grows the graph to 9 nodes / 11 links:
+
+```python
+g = txt2audio(
+    model="stable_audio_open_1.0.safetensors",
+    positive="cinematic ambient music",
+    negative="noise, distortion",
+    seconds=47.0,
+    steps=20,
+    cfg=3.5,
+    seed=42,
+    clip_name="t5_base.safetensors",
+    clip_type="stable_audio",
+    seconds_start=0.0,
 )
 prompt = to_api(g)
 ```

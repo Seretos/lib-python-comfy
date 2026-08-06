@@ -411,6 +411,180 @@ def test_txt2audio_builder_open_for_extension():
 
 
 # ---------------------------------------------------------------------------
+# txt2audio external CLIPLoader / ConditioningStableAudio (ticket #40)
+# ---------------------------------------------------------------------------
+
+
+def test_txt2audio_default_has_no_clip_loader_or_conditioning():
+    """The default (no clip_name) graph never emits the new opt-in node types."""
+    g = txt2audio(model="stable_audio.safetensors", positive="ambient music")
+    result = to_api(g)
+    types = {entry["class_type"] for entry in result.values()}
+    assert "CLIPLoader" not in types
+    assert "ConditioningStableAudio" not in types
+
+
+def test_txt2audio_clip_loader_feeds_both_text_encoders():
+    """clip_name inserts a CLIPLoader that feeds both CLIPTextEncode nodes."""
+    g = txt2audio(model="stable_audio_open_1.0.safetensors", positive="beat", clip_name="t5-base.safetensors")
+    result = to_api(g)
+
+    clip_loader_id = next(
+        node_id for node_id, entry in result.items() if entry["class_type"] == "CLIPLoader"
+    )
+    ckpt_id = next(
+        node_id for node_id, entry in result.items() if entry["class_type"] == "CheckpointLoaderSimple"
+    )
+    clip_encoders = [entry for entry in result.values() if entry["class_type"] == "CLIPTextEncode"]
+    assert len(clip_encoders) == 2
+    for entry in clip_encoders:
+        assert entry["inputs"]["clip"] == [clip_loader_id, 0]
+        assert entry["inputs"]["clip"] != [ckpt_id, 1]
+
+    clip_loader_entry = result[clip_loader_id]
+    assert clip_loader_entry["inputs"]["clip_name"] == "t5-base.safetensors"
+    # clip_type defaults to "stable_audio" and lands in the node's `type` input.
+    assert clip_loader_entry["inputs"]["type"] == "stable_audio"
+
+    # The checkpoint still supplies MODEL (slot 0) and VAE (slot 2).
+    ksampler_entry = next(entry for entry in result.values() if entry["class_type"] == "KSampler")
+    assert ksampler_entry["inputs"]["model"] == [ckpt_id, 0]
+    vae_decode_entry = next(entry for entry in result.values() if entry["class_type"] == "VAEDecodeAudio")
+    assert vae_decode_entry["inputs"]["vae"] == [ckpt_id, 2]
+
+
+def test_txt2audio_clip_loader_clip_type_override():
+    """An explicit clip_type overrides the "stable_audio" default."""
+    g = txt2audio(
+        model="stable_audio_open_1.0.safetensors",
+        positive="beat",
+        clip_name="t5-base.safetensors",
+        clip_type="sd3",
+    )
+    result = to_api(g)
+    clip_loader_entry = next(
+        entry for entry in result.values() if entry["class_type"] == "CLIPLoader"
+    )
+    assert clip_loader_entry["inputs"]["type"] == "sd3"
+
+
+def test_txt2audio_conditioning_stable_audio_between_encoders_and_ksampler():
+    """ConditioningStableAudio sits between the two CLIPTextEncode nodes and KSampler."""
+    g = txt2audio(
+        model="stable_audio_open_1.0.safetensors",
+        positive="beat",
+        negative="noise",
+        clip_name="t5-base.safetensors",
+    )
+    result = to_api(g)
+
+    cond_id = next(
+        node_id for node_id, entry in result.items() if entry["class_type"] == "ConditioningStableAudio"
+    )
+    ksampler_entry = next(entry for entry in result.values() if entry["class_type"] == "KSampler")
+    assert ksampler_entry["inputs"]["positive"] == [cond_id, 0]
+    assert ksampler_entry["inputs"]["negative"] == [cond_id, 1]
+
+    cond_entry = result[cond_id]
+    pos_ref = cond_entry["inputs"]["positive"]
+    neg_ref = cond_entry["inputs"]["negative"]
+    assert result[pos_ref[0]]["class_type"] == "CLIPTextEncode"
+    assert result[neg_ref[0]]["class_type"] == "CLIPTextEncode"
+    assert pos_ref[0] != neg_ref[0]
+
+
+def test_txt2audio_conditioning_stable_audio_seconds():
+    """seconds_start defaults to 0.0 and is overridable; seconds_total tracks seconds."""
+    g_default = txt2audio(
+        model="stable_audio_open_1.0.safetensors",
+        positive="beat",
+        seconds=10.0,
+        clip_name="t5-base.safetensors",
+    )
+    result_default = to_api(g_default)
+    cond_default = next(
+        entry for entry in result_default.values() if entry["class_type"] == "ConditioningStableAudio"
+    )
+    assert cond_default["inputs"]["seconds_start"] == 0.0
+    assert cond_default["inputs"]["seconds_total"] == 10.0
+    latent_default = next(
+        entry for entry in result_default.values() if entry["class_type"] == "EmptyLatentAudio"
+    )
+    assert latent_default["inputs"]["seconds"] == 10.0
+
+    g_override = txt2audio(
+        model="stable_audio_open_1.0.safetensors",
+        positive="beat",
+        seconds=5.0,
+        clip_name="t5-base.safetensors",
+        seconds_start=2.5,
+    )
+    result_override = to_api(g_override)
+    cond_override = next(
+        entry for entry in result_override.values() if entry["class_type"] == "ConditioningStableAudio"
+    )
+    assert cond_override["inputs"]["seconds_start"] == 2.5
+    assert cond_override["inputs"]["seconds_total"] == 5.0
+
+
+def test_txt2audio_clip_loader_graph_has_nine_nodes_eleven_links():
+    """The opt-in graph has exactly 9 nodes / 11 links and the expected 8-member class-type set."""
+    g = txt2audio(
+        model="stable_audio_open_1.0.safetensors",
+        positive="beat",
+        negative="noise",
+        clip_name="t5-base.safetensors",
+    )
+    result = to_api(g)
+    assert len(result) == 9
+    types = {entry["class_type"] for entry in result.values()}
+    assert types == {
+        "CLIPLoader",
+        "CheckpointLoaderSimple",
+        "CLIPTextEncode",
+        "ConditioningStableAudio",
+        "EmptyLatentAudio",
+        "KSampler",
+        "VAEDecodeAudio",
+        "SaveAudio",
+    }
+    assert len(types) == 8
+    assert len(g._link_list) == 11
+
+
+def test_txt2audio_empty_clip_name_falls_back_to_default_graph():
+    """clip_name='' is equivalent to omitting it — no CLIPLoader, legacy 7-node graph."""
+    g = txt2audio(model="stable_audio.safetensors", positive="ambient music", clip_name="")
+    result = to_api(g)
+    assert len(result) == 7
+    types = {entry["class_type"] for entry in result.values()}
+    assert types == {
+        "CheckpointLoaderSimple",
+        "CLIPTextEncode",
+        "EmptyLatentAudio",
+        "KSampler",
+        "VAEDecodeAudio",
+        "SaveAudio",
+    }
+    ckpt_id = next(
+        node_id for node_id, entry in result.items() if entry["class_type"] == "CheckpointLoaderSimple"
+    )
+    clip_encoders = [entry for entry in result.values() if entry["class_type"] == "CLIPTextEncode"]
+    for entry in clip_encoders:
+        assert entry["inputs"]["clip"] == [ckpt_id, 1]
+
+
+def test_txt2audio_whitespace_clip_name_builds_clip_loader():
+    """A whitespace-only clip_name is truthy and takes the opt-in path (settled decision)."""
+    g = txt2audio(model="stable_audio.safetensors", positive="ambient music", clip_name="   ")
+    result = to_api(g)
+    types = {entry["class_type"] for entry in result.values()}
+    assert "CLIPLoader" in types
+    clip_loader_entry = next(entry for entry in result.values() if entry["class_type"] == "CLIPLoader")
+    assert clip_loader_entry["inputs"]["clip_name"] == "   "
+
+
+# ---------------------------------------------------------------------------
 # txt2video scaffold (ticket #29)
 # ---------------------------------------------------------------------------
 

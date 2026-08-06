@@ -111,10 +111,14 @@ def txt2audio(
     sampler_name: str = "dpmpp_3m_sde_gpu",
     scheduler: str = "exponential",
     seed: int = 0,
+    clip_name: str | None = None,
+    clip_type: str = "stable_audio",
+    seconds_start: float = 0.0,
 ) -> GraphBuilder:
     """Return a :class:`GraphBuilder` pre-wired for a Stable Audio pipeline.
 
-    Builds the canonical ComfyUI Stable Audio graph::
+    By default, builds the canonical ComfyUI Stable Audio graph, routing the
+    text encoder from the checkpoint itself::
 
         CheckpointLoaderSimple
             ├─[MODEL]──────────────► KSampler ─[LATENT]─► VAEDecodeAudio ─[AUDIO]─► SaveAudio
@@ -123,9 +127,36 @@ def txt2audio(
             └─[VAE]────────────────────────────────────────► VAEDecodeAudio
         EmptyLatentAudio ─[LATENT]─► KSampler
 
+    When *clip_name* is supplied, a ``CLIPLoader`` node is inserted, both
+    ``CLIPTextEncode`` nodes are routed from it instead of the checkpoint,
+    and a ``ConditioningStableAudio`` stage is added between them and
+    ``KSampler``::
+
+        CLIPLoader
+            └─[CLIP]───► CLIPTextEncode(+) ─┐
+        CLIPLoader                          ├─[CONDITIONING]─► ConditioningStableAudio ─┐
+            └─[CLIP]───► CLIPTextEncode(-) ─┘                                           │
+        CheckpointLoaderSimple                                                          │
+            ├─[MODEL]──────────────────────────────────────► KSampler ◄─────────────────┘
+            └─[VAE]────────────────────────────────────────► VAEDecodeAudio ─[AUDIO]─► SaveAudio
+        EmptyLatentAudio ─[LATENT]─► KSampler
+
     The returned builder is open for further extension — callers may append
     additional nodes and links before serialising with :func:`to_api` or
     :func:`to_ui`.
+
+    .. note::
+
+        Checkpoints that do not bundle a text encoder (e.g.
+        ``stable_audio_open_1.0.safetensors``) leave ``CheckpointLoaderSimple``
+        slot 1 empty. Because the default graph routes both
+        ``CLIPTextEncode.clip`` inputs from that slot, such a checkpoint fails
+        at execution time with ComfyUI's ``clip input is invalid: None``. Pass
+        ``clip_name`` (and ``clip_type`` if the encoder is not a Stable Audio
+        T5) to load the text encoder from a separate ``CLIPLoader``; this also
+        inserts the ``ConditioningStableAudio`` stage. The library cannot
+        detect this from the checkpoint filename and deliberately emits no
+        warning.
 
     Args:
         model: Checkpoint filename as recognised by ComfyUI
@@ -140,11 +171,81 @@ def txt2audio(
         sampler_name: KSampler algorithm name (default ``"dpmpp_3m_sde_gpu"``).
         scheduler: KSampler scheduler name (default ``"exponential"``).
         seed: RNG seed for the KSampler (default 0).
+        clip_name: Text encoder filename to load via a separate
+            ``CLIPLoader`` node (e.g. ``"t5-base.safetensors"``). When
+            omitted (``None``, the default) or an empty string, both
+            ``CLIPTextEncode`` nodes are routed from the checkpoint's own
+            CLIP output instead — an empty string is equivalent to omitting
+            it. A whitespace-only string is treated as supplied and builds a
+            ``CLIPLoader`` with that (invalid) filename, which ComfyUI will
+            reject at execution time.
+        clip_type: ``CLIPLoader`` encoder type widget, only used when
+            *clip_name* is supplied (default ``"stable_audio"``).
+        seconds_start: Start offset in seconds fed to the
+            ``ConditioningStableAudio`` stage, only used when *clip_name* is
+            supplied (default 0.0).
 
     Returns:
-        A configured :class:`GraphBuilder` with 7 nodes and 9 links.
+        A configured :class:`GraphBuilder`: 7 nodes / 9 links by default;
+        9 nodes / 11 links when ``clip_name`` is supplied.
     """
     g = GraphBuilder()
+
+    if clip_name:
+        clip_loader = g.add_node("CLIPLoader", {"clip_name": clip_name, "type": clip_type})
+        ckpt = g.add_node("CheckpointLoaderSimple", {"ckpt_name": model})
+        clip_pos = g.add_node("CLIPTextEncode", {"text": positive})
+        clip_neg = g.add_node("CLIPTextEncode", {"text": negative})
+        cond = g.add_node(
+            "ConditioningStableAudio",
+            {"seconds_start": seconds_start, "seconds_total": seconds},
+        )
+        latent = g.add_node(
+            "EmptyLatentAudio",
+            {"seconds": seconds, "batch_size": batch_size, "sample_rate": sample_rate},
+        )
+        ksampler = g.add_node(
+            "KSampler",
+            {
+                "seed": seed,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": sampler_name,
+                "scheduler": scheduler,
+                "denoise": 1.0,
+            },
+        )
+        vae_decode = g.add_node("VAEDecodeAudio", {})
+        save_audio = g.add_node("SaveAudio", {"filename_prefix": "ComfyUI"})
+
+        # CheckpointLoaderSimple outputs: 0=MODEL, 1=CLIP, 2=VAE
+        g.link(ckpt, 0, ksampler, "model")
+
+        # CLIPLoader outputs: 0=CLIP
+        g.link(clip_loader, 0, clip_pos, "clip")
+        g.link(clip_loader, 0, clip_neg, "clip")
+
+        # CLIPTextEncode outputs: 0=CONDITIONING
+        g.link(clip_pos, 0, cond, "positive")
+        g.link(clip_neg, 0, cond, "negative")
+
+        # ConditioningStableAudio outputs: 0=CONDITIONING (positive), 1=CONDITIONING (negative)
+        g.link(cond, 0, ksampler, "positive")
+        g.link(cond, 1, ksampler, "negative")
+
+        # EmptyLatentAudio outputs: 0=LATENT
+        g.link(latent, 0, ksampler, "latent_image")
+
+        # KSampler outputs: 0=LATENT
+        g.link(ksampler, 0, vae_decode, "samples")
+
+        # CheckpointLoaderSimple slot 2 = VAE
+        g.link(ckpt, 2, vae_decode, "vae")
+
+        # VAEDecodeAudio outputs: 0=AUDIO
+        g.link(vae_decode, 0, save_audio, "audio")
+
+        return g
 
     ckpt = g.add_node("CheckpointLoaderSimple", {"ckpt_name": model})
     clip_pos = g.add_node("CLIPTextEncode", {"text": positive})
