@@ -23,6 +23,16 @@ NODE_META: dict[str, dict] = {
         "inputs": {"clip": "CLIP"},
         "widgets": ["text"],
     },
+    "CLIPLoader": {
+        "outputs": ["CLIP"],
+        "inputs": {},
+        "widgets": ["clip_name", "type"],
+    },
+    "ConditioningStableAudio": {
+        "outputs": ["CONDITIONING", "CONDITIONING"],
+        "inputs": {"positive": "CONDITIONING", "negative": "CONDITIONING"},
+        "widgets": ["seconds_start", "seconds_total"],
+    },
     "EmptyLatentImage": {
         "outputs": ["LATENT"],
         "inputs": {},
