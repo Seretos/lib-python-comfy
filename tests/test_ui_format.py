@@ -245,3 +245,41 @@ def test_txt2audio_ui_real_types_and_widgets():
     # No UNKNOWN types anywhere in this scaffold's links.
     for lnk in result["links"]:
         assert lnk[5] != "UNKNOWN"
+
+
+def test_txt2audio_external_clip_ui_real_types_and_widgets():
+    """txt2audio with clip_name: CLIPLoader/ConditioningStableAudio emit real types and widgets."""
+    g = txt2audio(
+        model="stable_audio_open_1.0.safetensors",
+        positive="ambient",
+        negative="noise",
+        seconds=30.0,
+        clip_name="t5-base.safetensors",
+        clip_type="stable_audio",
+        seconds_start=1.5,
+    )
+    result = to_ui(g)
+
+    clip_loader = next(n for n in result["nodes"] if n["type"] == "CLIPLoader")
+    assert clip_loader["outputs"][0]["type"] == "CLIP"
+    assert clip_loader["widgets_values"] == ["t5-base.safetensors", "stable_audio"]
+
+    cond = next(n for n in result["nodes"] if n["type"] == "ConditioningStableAudio")
+    assert [slot["type"] for slot in cond["outputs"]] == ["CONDITIONING", "CONDITIONING"]
+    assert cond["widgets_values"] == [1.5, 30.0]
+
+    # Each of the two distinct output slots on ConditioningStableAudio carries
+    # its own link list — exercises output_slot(..., 1), a path no other
+    # scaffold hits.
+    assert len(cond["outputs"]) == 2
+    assert cond["outputs"][0]["links"] != cond["outputs"][1]["links"]
+    assert len(cond["outputs"][0]["links"]) == 1
+    assert len(cond["outputs"][1]["links"]) == 1
+
+    # No UNKNOWN types anywhere in this graph's links.
+    for lnk in result["links"]:
+        assert lnk[5] != "UNKNOWN"
+
+    # last_node_id / last_link_id reflect the larger 9-node / 11-link graph.
+    assert result["last_node_id"] == 9
+    assert result["last_link_id"] == 11
