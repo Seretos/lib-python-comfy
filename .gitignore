@@ -39,3 +39,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 .process-ticket-result.json
+.adev/
