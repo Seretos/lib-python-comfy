@@ -18,15 +18,98 @@ start / bash reports "No such file or directory" and returns exit code 127
 — not a pass-by-accident failure, and not a assertion mismatch.
 """
 
+import platform
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+
+def _is_real_bash(path):
+    """Return whether ``path`` is an actually-working POSIX bash.
+
+    The Windows WSL launcher stub (``C:\\Windows\\System32\\bash.exe``)
+    exists as a file and is executable, so an existence check alone cannot
+    tell it apart from Git for Windows' real bash -- it has to actually be
+    invoked. The stub exits non-zero (it prints a "Windows Subsystem for
+    Linux has no installed distributions" message, in UTF-16, and refuses
+    to run anything), while a real bash runs a trivial command and exits 0
+    cleanly. Run once per candidate at collection time, so a handful of
+    subprocess spawns here is cheap relative to the cost of silently
+    running every test against a broken shell.
+    """
+    if not path:
+        return False
+    try:
+        result = subprocess.run(
+            [path, "-c", "exit 0"],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _find_bash():
+    """Resolve a real, working POSIX bash, never the Windows WSL launcher
+    stub.
+
+    On Windows, plain ``bash`` on PATH can resolve to
+    ``C:\\Windows\\System32\\bash.exe`` -- a launcher stub for WSL, not a
+    real POSIX shell -- whenever System32 precedes Git for Windows' own
+    ``bin`` directory in PATH. That happens to be the default PATH order on
+    GitHub's ``windows-latest`` Actions runner. The stub prints a "Windows
+    Subsystem for Linux has no installed distributions" message (in UTF-16)
+    and exits non-zero, so every ``subprocess.run(["bash", ...])`` call in
+    this file would silently fail before the actual script logic ever ran.
+    Prefer Git for Windows' real bash explicitly instead of trusting
+    whatever "bash" happens to mean on PATH -- and verify every candidate
+    actually runs before accepting it, since a plausible-looking path (one
+    that merely exists on disk) is not proof it works.
+    """
+    if platform.system() != "Windows":
+        candidate = shutil.which("bash")
+        return candidate if _is_real_bash(candidate) else None
+
+    known_locations = [
+        Path(r"C:\Program Files\Git\bin\bash.exe"),
+        Path(r"C:\Program Files\Git\usr\bin\bash.exe"),
+        Path(r"C:\Program Files (x86)\Git\bin\bash.exe"),
+        Path(r"C:\Program Files (x86)\Git\usr\bin\bash.exe"),
+    ]
+    for candidate in known_locations:
+        if candidate.is_file() and _is_real_bash(str(candidate)):
+            return str(candidate)
+
+    # Fall back to deriving it from wherever `git` itself resolves to. Git
+    # for Windows lays its tree out as either <root>\bin\git.exe,
+    # <root>\cmd\git.exe, or <root>\mingw64\bin\git.exe, with the real
+    # bash.exe always at <root>\bin\bash.exe -- so walk up from git.exe's
+    # directory looking for that sibling.
+    git_path = shutil.which("git")
+    if git_path:
+        git_dir = Path(git_path).resolve().parent
+        for root in (git_dir, git_dir.parent, git_dir.parent.parent):
+            bash_candidate = root / "bin" / "bash.exe"
+            if bash_candidate.is_file() and _is_real_bash(str(bash_candidate)):
+                return str(bash_candidate)
+
+    # Nothing found in any known location: fall back to plain PATH lookup,
+    # same as before, but still validated. On a stub-only environment this
+    # correctly resolves to None -- via _is_real_bash rejecting the stub --
+    # so the skipif guard below (`_BASH is None`) skips cleanly instead of
+    # running every test against a shell that will never work.
+    candidate = shutil.which("bash")
+    return candidate if _is_real_bash(candidate) else None
+
+
+_BASH = _find_bash()
+
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("git") is None,
-    reason="requires bash and git on PATH",
+    _BASH is None or shutil.which("git") is None,
+    reason="requires a usable POSIX bash (not a WSL launcher stub) and git on PATH",
 )
 
 SCRIPT = (
@@ -57,7 +140,7 @@ def _tag(repo_path, name):
 
 def _run_script(repo_path, new_tag):
     return subprocess.run(
-        ["bash", str(SCRIPT), new_tag],
+        [_BASH, str(SCRIPT), new_tag],
         cwd=repo_path,
         capture_output=True,
         text=True,
