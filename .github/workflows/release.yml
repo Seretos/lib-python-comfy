@@ -122,10 +122,26 @@ jobs:
           if [[ "${{ inputs.version }}" == *-* ]]; then
             PRE_FLAG="--prerelease"
           fi
+
+          # Release commits are orphaned by design (the "Checkout main" step
+          # above ran with fetch-depth: 0, so every prior vX.Y.Z tag is
+          # visible here): each run rebuilds the release branch fresh off
+          # main HEAD, so no prior release tag is an ancestor of this one,
+          # and --generate-notes's default ancestor walk silently falls back
+          # to notes from the beginning of history. Passing the immediately
+          # preceding released tag as --notes-start-tag gives GitHub an
+          # explicit start point so it uses a merge-base compare instead.
+          PREV_TAG="$(bash .github/scripts/prev-release-tag.sh "$TAG")"
+          NOTES_START_FLAG=""
+          if [ -n "$PREV_TAG" ]; then
+            NOTES_START_FLAG="--notes-start-tag $PREV_TAG"
+          fi
+
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --title "$TAG" \
             --generate-notes \
+            $NOTES_START_FLAG \
             $PRE_FLAG
 
       - name: Open dependency-update ticket in agent-comfy
