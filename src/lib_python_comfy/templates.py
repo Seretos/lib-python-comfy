@@ -16,6 +16,9 @@ Supported types: ``STR``, ``INT``, ``FLOAT``, ``BOOL``, ``SEED``.
 
 Built-in templates live in :mod:`lib_python_comfy.template_data` and are
 accessible via :func:`list_builtin_templates` / :func:`load_builtin_template`.
+Project-specific templates in caller-supplied external directories are
+discoverable and loadable alongside the packaged set via :func:`list_templates`
+/ :func:`load_template`.
 """
 from __future__ import annotations
 
@@ -25,7 +28,8 @@ import json
 import random
 import re
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Sequence
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +59,36 @@ class TemplateParam:
     name: str
     type: str
     required: bool
+
+
+@dataclass(frozen=True)
+class TemplateInfo:
+    """Identifies one discoverable template, packaged or external.
+
+    Attributes:
+        name: The template stem name (filename without ``.json`` extension).
+        origin: ``"packaged"`` for a template shipped in
+            :mod:`lib_python_comfy.template_data`, ``"external"`` for one found
+            in a caller-supplied ``extra_dirs`` entry.
+        path: The filesystem path the template was found at (as a string).
+    """
+
+    name: str
+    origin: str
+    path: str
+
+
+@dataclass(frozen=True)
+class LoadedTemplate:
+    """A loaded template: its identity plus the parsed JSON content.
+
+    Attributes:
+        info: The :class:`TemplateInfo` this template was resolved from.
+        data: The parsed API-format template dict.
+    """
+
+    info: TemplateInfo
+    data: dict
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +274,28 @@ def render(template: dict, params: dict[str, Any]) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _packaged_infos() -> list[TemplateInfo]:
+    """Enumerate the packaged templates in :mod:`lib_python_comfy.template_data`.
+
+    Returns:
+        A list of :class:`TemplateInfo` with ``origin="packaged"``, one per
+        ``*.json`` resource, in ``iterdir()`` order.
+    """
+    pkg = importlib.resources.files("lib_python_comfy.template_data")
+    infos: list[TemplateInfo] = []
+    for resource in pkg.iterdir():
+        name = resource.name
+        if name.endswith(".json"):
+            infos.append(
+                TemplateInfo(
+                    name=name[: -len(".json")],
+                    origin="packaged",
+                    path=str(resource),
+                )
+            )
+    return infos
+
+
 def list_builtin_templates() -> list[str]:
     """Return the stem names of all built-in templates.
 
@@ -247,13 +303,7 @@ def list_builtin_templates() -> list[str]:
         A list of template stem names (filename without ``.json`` extension),
         e.g. ``["txt2img_basic"]``.
     """
-    pkg = importlib.resources.files("lib_python_comfy.template_data")
-    stems: list[str] = []
-    for resource in pkg.iterdir():
-        name = resource.name
-        if name.endswith(".json"):
-            stems.append(name[: -len(".json")])
-    return stems
+    return [info.name for info in _packaged_infos()]
 
 
 def load_builtin_template(name: str) -> dict:
@@ -278,3 +328,113 @@ def load_builtin_template(name: str) -> dict:
             f"Available: {list_builtin_templates()}"
         )
     return json.loads(text)
+
+
+# ---------------------------------------------------------------------------
+# External template directories (ticket #50)
+# ---------------------------------------------------------------------------
+
+
+def _external_infos(directory: str | Path) -> list[TemplateInfo]:
+    """Enumerate the ``*.json`` templates directly inside *directory*.
+
+    Non-recursive, top-level ``*.json`` files only — the same rule as the
+    packaged directory. If *directory* does not exist, is not a directory, or
+    raises ``OSError`` while being scanned, returns an empty list silently (no
+    logging, no error, no flag).
+    """
+    path = Path(directory)
+    if not path.is_dir():
+        return []
+    infos: list[TemplateInfo] = []
+    try:
+        for entry in path.iterdir():
+            if entry.is_file() and entry.name.endswith(".json"):
+                infos.append(
+                    TemplateInfo(
+                        name=entry.name[: -len(".json")],
+                        origin="external",
+                        path=str(entry),
+                    )
+                )
+    except OSError:
+        return []
+    return infos
+
+
+def _resolve_templates(extra_dirs: Sequence[str | Path] = ()) -> dict[str, TemplateInfo]:
+    """Resolve the full set of discoverable templates by name.
+
+    Seeds the result with the packaged entries, then applies *extra_dirs* on
+    top so that external entries always override packaged ones. Precedence
+    among multiple *extra_dirs* is PATH-like — earlier entries win — which is
+    implemented by applying the directories in reverse order with plain
+    overwrite (a later, lower-precedence write can never clobber an earlier,
+    higher-precedence one).
+
+    Returns:
+        A dict mapping template stem name to its resolved :class:`TemplateInfo`.
+    """
+    resolved: dict[str, TemplateInfo] = {info.name: info for info in _packaged_infos()}
+    for directory in reversed(list(extra_dirs)):
+        for info in _external_infos(directory):
+            resolved[info.name] = info
+    return resolved
+
+
+def list_templates(extra_dirs: Sequence[str | Path] = ()) -> list[TemplateInfo]:
+    """List every discoverable template, packaged and external, sorted by name.
+
+    External files must already be API-format, ``PARAM_*``-placeholder JSON —
+    this function performs no validation and does not resolve directories
+    itself (the caller supplies them).
+
+    Args:
+        extra_dirs: Additional directories to search for project-specific
+            templates, in precedence order (PATH-like: earlier directories
+            win when the same stem name appears in more than one). Each
+            directory is scanned non-recursively for top-level ``*.json``
+            files. A directory that is missing, is not a directory, or
+            raises ``OSError`` on scan is skipped silently. An external
+            entry always overrides a packaged entry of the same name.
+
+    Returns:
+        A list of :class:`TemplateInfo`, sorted by ``name``.
+    """
+    return sorted(_resolve_templates(extra_dirs).values(), key=lambda info: info.name)
+
+
+def load_template(name: str, extra_dirs: Sequence[str | Path] = ()) -> LoadedTemplate:
+    """Load a template by stem name from the packaged set or *extra_dirs*.
+
+    External files must already be API-format, ``PARAM_*``-placeholder JSON —
+    this function performs no validation; a malformed file only fails when its
+    JSON is parsed (``json.JSONDecodeError`` propagates) or later at ComfyUI.
+
+    Args:
+        name: The template stem name.
+        extra_dirs: Additional directories to search, in precedence order
+            (PATH-like: earlier directories win). See :func:`list_templates`
+            for the discovery rules.
+
+    Returns:
+        A :class:`LoadedTemplate` combining the resolved :class:`TemplateInfo`
+        (with its actual ``origin``, ``"packaged"`` or ``"external"``) and the
+        parsed JSON content.
+
+    Raises:
+        FileNotFoundError: If *name* is present in neither the packaged set
+            nor any of *extra_dirs*. The message lists the available names.
+        json.JSONDecodeError: If the resolved file's content is not valid JSON.
+    """
+    resolved = _resolve_templates(extra_dirs)
+    info = resolved.get(name)
+    if info is None:
+        raise FileNotFoundError(
+            f"No template named {name!r}. Available: {sorted(resolved)}"
+        )
+    if info.origin == "packaged":
+        data = load_builtin_template(info.name)
+    else:
+        data = json.loads(Path(info.path).read_text(encoding="utf-8"))
+    return LoadedTemplate(info=info, data=data)

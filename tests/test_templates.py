@@ -1,9 +1,11 @@
-"""Tests for the workflow-template subsystem (ticket #10).
+"""Tests for the workflow-template subsystem (ticket #10, #50).
 
 All imports go through the public ``lib_python_comfy`` namespace to verify
 that re-exports and ``__all__`` are wired correctly.
 """
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -13,6 +15,8 @@ from lib_python_comfy import (
     discover_params,
     list_builtin_templates,
     load_builtin_template,
+    load_template,
+    list_templates,
     render,
 )
 
@@ -224,3 +228,172 @@ def test_load_builtin_template_missing_raises():
     """load_builtin_template with unknown name raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         load_builtin_template("nonexistent_template")
+
+
+# ---------------------------------------------------------------------------
+# External template directories (ticket #50)
+# ---------------------------------------------------------------------------
+
+
+def _write_json(path, data):
+    """Write *data* as JSON to *path*, creating parent dirs as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+# --- R1: external template discoverable and loadable alongside packaged ---
+
+
+def test_list_templates_includes_external(tmp_path):
+    """list_templates(extra_dirs=[tmp_path]) includes both the packaged
+    txt2img_basic entry (origin='packaged') and the external one written
+    into tmp_path (origin='external')."""
+    external_data = {"1": {"class_type": "Foo", "inputs": {"x": "PARAM_STR_X"}}}
+    _write_json(tmp_path / "my_project_template.json", external_data)
+
+    infos = list_templates(extra_dirs=[tmp_path])
+    names = {info.name: info for info in infos}
+
+    assert "txt2img_basic" in names
+    assert names["txt2img_basic"].origin == "packaged"
+    assert "my_project_template" in names
+    assert names["my_project_template"].origin == "external"
+
+
+def test_load_template_loads_external(tmp_path):
+    """load_template('<external_name>', extra_dirs=[tmp_path]).data equals
+    the JSON written into tmp_path."""
+    external_data = {"1": {"class_type": "Foo", "inputs": {"x": "PARAM_STR_X"}}}
+    _write_json(tmp_path / "my_project_template.json", external_data)
+
+    loaded = load_template("my_project_template", extra_dirs=[tmp_path])
+    assert loaded.data == external_data
+    assert loaded.info.origin == "external"
+    assert loaded.info.name == "my_project_template"
+
+
+def test_list_templates_no_args_returns_only_packaged():
+    """list_templates() with no extra_dirs returns only packaged entries,
+    including txt2img_basic, sorted by name."""
+    infos = list_templates()
+    names = [info.name for info in infos]
+    assert "txt2img_basic" in names
+    assert all(info.origin == "packaged" for info in infos)
+    assert names == sorted(names)
+
+
+def test_list_templates_ignores_non_json_files(tmp_path):
+    """A non-.json file in the external dir is ignored."""
+    (tmp_path / "notes.txt").write_text("not a template", encoding="utf-8")
+    infos = list_templates(extra_dirs=[tmp_path])
+    names = [info.name for info in infos]
+    assert "notes" not in names
+
+
+# --- R2: collision — external wins, caller can tell origin ---
+
+
+def test_external_template_overrides_packaged(tmp_path):
+    """An external dir containing txt2img_basic.json overrides the packaged
+    entry in list_templates/load_template, while load_builtin_template still
+    returns the packaged content directly."""
+    external_data = {"1": {"class_type": "Overridden", "inputs": {}}}
+    _write_json(tmp_path / "txt2img_basic.json", external_data)
+
+    infos = list_templates([tmp_path])
+    matches = [info for info in infos if info.name == "txt2img_basic"]
+    assert len(matches) == 1
+    assert matches[0].origin == "external"
+
+    loaded = load_template("txt2img_basic", [tmp_path])
+    assert loaded.data == external_data
+    assert loaded.info.origin == "external"
+
+    # The packaged loader is unaffected by the external override.
+    packaged = load_builtin_template("txt2img_basic")
+    assert packaged != external_data
+
+
+def test_external_dir_precedence_earlier_wins(tmp_path):
+    """With two external dirs both containing a template of the same stem,
+    the earlier dir in extra_dirs wins (PATH-like precedence)."""
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_data = {"1": {"class_type": "First", "inputs": {}}}
+    second_data = {"1": {"class_type": "Second", "inputs": {}}}
+    _write_json(first_dir / "shared.json", first_data)
+    _write_json(second_dir / "shared.json", second_data)
+
+    loaded = load_template("shared", extra_dirs=[first_dir, second_dir])
+    assert loaded.data == first_data
+    assert str(first_dir) in loaded.info.path
+
+
+# --- R3: missing/unreadable external directory is skipped, not an error ---
+
+
+def test_missing_external_dir_is_skipped(tmp_path):
+    """A non-existent external dir does not raise; packaged entries are
+    still returned."""
+    missing = tmp_path / "does_not_exist"
+    infos = list_templates([missing])
+    names = [info.name for info in infos]
+    assert "txt2img_basic" in names
+
+
+def test_external_dir_that_is_a_file_is_skipped(tmp_path):
+    """An extra_dirs entry that is a file (not a directory) does not raise;
+    packaged entries are still returned."""
+    a_file = tmp_path / "not_a_dir.txt"
+    a_file.write_text("hello", encoding="utf-8")
+    infos = list_templates([a_file])
+    names = [info.name for info in infos]
+    assert "txt2img_basic" in names
+
+
+def test_valid_dir_after_missing_dir_still_contributes(tmp_path):
+    """A valid external dir listed after a missing one still contributes its
+    templates."""
+    missing = tmp_path / "does_not_exist"
+    valid_dir = tmp_path / "valid"
+    _write_json(valid_dir / "after_missing.json", {"1": {"class_type": "X", "inputs": {}}})
+
+    infos = list_templates([missing, valid_dir])
+    names = [info.name for info in infos]
+    assert "after_missing" in names
+
+
+# --- R4: no validation; malformed files fail only at load time ---
+
+
+def test_malformed_external_file_is_listed_but_fails_on_load(tmp_path):
+    """A broken.json with invalid JSON content is listed by list_templates
+    but raises json.JSONDecodeError when load_template parses it."""
+    (tmp_path / "broken.json").write_text("not json at all", encoding="utf-8")
+
+    infos = list_templates([tmp_path])
+    names = [info.name for info in infos]
+    assert "broken" in names
+
+    with pytest.raises(json.JSONDecodeError):
+        load_template("broken", [tmp_path])
+
+
+def test_non_api_format_external_file_loads_unchecked(tmp_path):
+    """A syntactically valid but non-API-format file is listed and loaded
+    without complaint (no schema validation)."""
+    _write_json(tmp_path / "not_api_format.json", {"foo": 1})
+
+    infos = list_templates([tmp_path])
+    names = [info.name for info in infos]
+    assert "not_api_format" in names
+
+    loaded = load_template("not_api_format", [tmp_path])
+    assert loaded.data == {"foo": 1}
+
+
+def test_load_template_unknown_name_raises_file_not_found(tmp_path):
+    """load_template with a name present in neither packaged nor external
+    sources raises FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        load_template("nonexistent_template_xyz", [tmp_path])

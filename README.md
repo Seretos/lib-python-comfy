@@ -221,8 +221,12 @@ from lib_python_comfy import (
     render,
     load_builtin_template,
     list_builtin_templates,
+    load_template,
+    list_templates,
     discover_params,
     TemplateParam,
+    TemplateInfo,
+    LoadedTemplate,
     MissingParameterError,
 )
 ```
@@ -249,6 +253,32 @@ Supported types: `STR`, `INT`, `FLOAT`, `BOOL`, `SEED`. `SEED` placeholders are 
 **`TemplateParam`** — dataclass: `name: str`, `type: str`, `required: bool`.
 
 **`MissingParameterError`** — raised by `render()` when a required parameter is absent.
+
+#### External template directories
+
+Project-specific templates can live outside the package and be discovered and
+loaded alongside the packaged set. External files **must already be
+API-format, `PARAM_*`-placeholder JSON** — this library performs no schema
+validation of them and does not resolve directories itself; the caller
+supplies the paths.
+
+```python
+infos = list_templates(extra_dirs=["/path/to/my/templates"])
+# [TemplateInfo(name='my_project_template', origin='external', path='...'),
+#  TemplateInfo(name='txt2img_basic', origin='packaged', path='...'), ...]
+
+loaded = load_template("my_project_template", extra_dirs=["/path/to/my/templates"])
+loaded.info.origin  # 'external'
+loaded.data          # the parsed JSON dict
+```
+
+**`list_templates(extra_dirs: Sequence[str | Path] = ()) -> list[TemplateInfo]`** — list every discoverable template, packaged and external, sorted by `name`. Each `extra_dirs` entry is scanned non-recursively for top-level `*.json` files (same rule as the packaged directory). A directory that is missing, is not a directory, or raises `OSError` on scan is skipped silently — no logging, no error, no flag. An external template overrides a packaged one of the same name. Precedence among multiple `extra_dirs` is **PATH-like — earlier entries win**.
+
+**`load_template(name: str, extra_dirs: Sequence[str | Path] = ()) -> LoadedTemplate`** — load a template by stem name from the packaged set or `extra_dirs`, using the same discovery/precedence rules as `list_templates`. Raises `FileNotFoundError`, listing the available names, if *name* is present in neither. No format validation: a malformed external file only fails when its JSON is parsed (`json.JSONDecodeError` propagates) or later at ComfyUI.
+
+**`TemplateInfo`** — frozen dataclass: `name: str`, `origin: str` (`"packaged"` or `"external"`), `path: str`.
+
+**`LoadedTemplate`** — frozen dataclass: `info: TemplateInfo`, `data: dict`.
 
 ---
 

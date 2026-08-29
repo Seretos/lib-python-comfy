@@ -24,11 +24,15 @@ from lib_python_comfy.publish import publish_asset
 from lib_python_comfy.runner import FlowRunner, JobState, JobStatus, RunResult
 from lib_python_comfy.serialization import SerializationGuard
 from lib_python_comfy.templates import (
+    LoadedTemplate,
     MissingParameterError,
+    TemplateInfo,
     TemplateParam,
     discover_params,
     list_builtin_templates,
+    list_templates,
     load_builtin_template,
+    load_template,
     render,
 )
 
@@ -53,9 +57,13 @@ __all__ = [
     "txt2video",
     "MissingParameterError",
     "TemplateParam",
+    "TemplateInfo",
+    "LoadedTemplate",
     "discover_params",
     "list_builtin_templates",
     "load_builtin_template",
+    "list_templates",
+    "load_template",
     "render",
     "extract_assets",
     "fetch_bytes",
