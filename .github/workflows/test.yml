@@ -1,6 +1,6 @@
 name: tests
 
-# Runs pytest on every push to any branch and on every PR. Distinct
+# Runs pytest only on pull requests, not on every push. Distinct
 # from release.yml which is workflow_dispatch-driven and produces the
 # release-branch + tag.
 #
@@ -8,8 +8,6 @@ name: tests
 # ubuntu-latest) matches the WSL2 / plugin-binary glibc target, so a
 # regression here would be visible to the same downstream consumers.
 on:
-  push:
-    branches: ["**"]
   pull_request:
 
 permissions:
