@@ -67,34 +67,23 @@ do those phases by hand on the main thread — let the skill drive them.
 
 ## Downstream dependency notifications
 
-When a release is published, `release.yml` automatically opens a
-"bump dependency" ticket in the downstream consumer `Seretos/agent-comfy`
-so it can update its pin to the new `vX.Y.Z`.
+When a release is published, `release.yml` calls the central ecosystem
+composite action
+`Seretos/agent-plugin-dev/.github/actions/notify-consumers@main`
+(intentionally unpinned on `@main`, so ecosystem-wide fixes reach this
+repo without a version bump here) to open a "bump dependency" ticket in
+each downstream consumer, so it can update its pin to the new `vX.Y.Z`.
+The action owns the ticket body/changelog, the idempotency check, labels,
+and project-board placement — this repo supplies only facts.
 
 - **Trigger:** every `release.yml` run, immediately after the GitHub
   Release is created.
-- **Prerequisite — `COMFY_TICKET_TOKEN`:** a **classic PAT** (Settings →
+- **Consumers:** `Seretos/agent-comfy`.
+- **Prerequisite — `ECOSYSTEM_TOKEN`:** a **classic PAT** (Settings →
   Developer settings → Personal access tokens → Tokens (classic)) with the
-  `repo` scope (covers Issues: write on `Seretos/agent-comfy`) and the
-  `project` scope, stored as a repo secret on `lib-python-comfy`. Fine-grained
-  PATs have no "Projects" permission at all — a hard GitHub platform
-  limitation, not a UI setting to search harder for. The built-in
-  `GITHUB_TOKEN` cannot create issues in a foreign repo. A human must create
-  this secret before the first release; until then the step is silently
-  skipped. The same classic PAT value is shared and reused verbatim across
-  every repo/secret in the ecosystem that files tickets and adds them to the
-  board.
-- **Non-blocking:** the step is `continue-on-error: true`, so a missing or
-  invalid token never fails the release.
-- **Idempotent:** if an open issue with the same title already exists in
-  the consumer, the step skips creating a duplicate.
-- **Project board:** a follow-up step adds the ticket to the
-  `users/Seretos/projects/2` board via `gh project item-add`, reusing the
-  same `COMFY_TICKET_TOKEN` (its `project` scope authorizes the board-add)
-  — no separate secret to create or maintain. Missing/invalid token →
-  skipped cleanly, the ticket itself still opens normally.
-- **Manual fallback:** if the automatic step was skipped or failed, re-file
-  via the `open-dep-ticket` workflow:
-  `gh workflow run open-dep-ticket --field version=X.Y.Z`
-- **Emergency one-liner:**
-  `gh issue create --repo Seretos/agent-comfy --title "chore(deps): bump lib-python-comfy to vX.Y.Z" --body "Update the pin in pyproject.toml to lib-python-comfy @ git+https://github.com/Seretos/lib-python-comfy@vX.Y.Z, run tests, open a PR."`
+  `repo` and `project` scopes, stored as a repo secret on
+  `lib-python-comfy` and created by a human before the first release. The
+  step is `continue-on-error: true`, so a missing or invalid token never
+  fails the release.
+- **Catch-up:** if a run was skipped or failed, re-run it via the
+  `open-dep-ticket` workflow in the meta-repo `Seretos/agent-plugin-dev`.
