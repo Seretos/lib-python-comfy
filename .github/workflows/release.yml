@@ -28,7 +28,9 @@ name: release
 # long as the tag exists.
 #
 # No MARKETPLACE_DISPATCH_TOKEN: a lib never dispatches into the
-# marketplace. This workflow uses only the built-in secrets.GITHUB_TOKEN.
+# marketplace. This workflow uses the built-in secrets.GITHUB_TOKEN for the
+# release itself, plus secrets.ECOSYSTEM_TOKEN passed only to the
+# notify-consumers step below (foreign-repo writes need a PAT).
 on:
   workflow_dispatch:
     inputs:
@@ -144,124 +146,14 @@ jobs:
             $NOTES_START_FLAG \
             $PRE_FLAG
 
-      - name: Open dependency-update ticket in agent-comfy
-        # continue-on-error: a missing/invalid COMFY_TICKET_TOKEN must
-        # never fail the release itself.
-        id: file_comfy
+      - name: Open dependency-update tickets in consumers
+        # Central ecosystem action (intentionally unpinned @main). Handles the
+        # release notes, the idempotency check, labels and board placement.
+        # continue-on-error: a missing/invalid ECOSYSTEM_TOKEN must never fail the release.
         continue-on-error: true
-        shell: bash
-        # TITLE/BODY_HEAD/BODY_TAIL live in env (not a run-block heredoc): a
-        # heredoc body at column 0 dedents out of the YAML block scalar and
-        # breaks the file. A YAML block scalar holds the markdown verbatim
-        # and ${{ }} still expands. Bash assembles the final $BODY from
-        # these plus the fetched $CHANGELOG (see run: below).
-        env:
-          # COMFY_TICKET_TOKEN must be a classic PAT with the `repo` and
-          # `project` scopes — fine-grained PATs have no Projects permission
-          # at all, so the board-add step further down authenticates with
-          # this same classic-PAT secret — no separate secret to maintain.
-          GH_TOKEN: ${{ secrets.COMFY_TICKET_TOKEN }}
-          TITLE: "chore(deps): bump lib-python-comfy to v${{ inputs.version }}"
-          BODY_HEAD: |
-            ## Dependency update
-
-            A new release of **lib-python-comfy** has been published: `v${{ inputs.version }}`.
-          BODY_TAIL: |
-            ### Action required
-
-            1. Update the pin in `pyproject.toml` to:
-               ```
-               lib-python-comfy @ git+https://github.com/Seretos/lib-python-comfy@v${{ inputs.version }}
-               ```
-            2. Run `pip install -e ".[test]"` then `python -m pytest` to verify the test suite passes.
-            3. Confirm the package imports: `python -c "import lib_python_comfy"`.
-            4. Commit and open a PR.
-        run: |
-          CONSUMER="Seretos/agent-comfy"
-          TAG="v${{ inputs.version }}"
-
-          # Fetch the just-published release's notes to enrich the ticket
-          # body with a "### What changed" section. The release was created
-          # by the preceding step in this same job, so a fetch failure here
-          # is unexpected — but it must still never fail the release itself,
-          # so any failure (including a 404) just degrades: warn and omit
-          # the section.
-          CHANGELOG=""
-          GH_CHANGELOG_ERR="$(mktemp)"
-          if CHANGELOG=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.body // ""' 2>"$GH_CHANGELOG_ERR"); then
-            :
-          else
-            echo "::warning::Failed to fetch changelog for ${TAG}: $(cat "$GH_CHANGELOG_ERR")"
-            CHANGELOG=""
-          fi
-          rm -f "$GH_CHANGELOG_ERR"
-
-          # Assemble BODY by direct string concatenation, never through
-          # $(...): command substitution strips trailing newlines, which
-          # is what silently broke the blank-line spacing here before.
-          # BODY_HEAD already ends in exactly one newline (YAML block
-          # scalar clip chomping); prefixing the next chunk with exactly
-          # one more newline reproduces the single-blank-line-between-
-          # sections convention the rest of the document uses, in both
-          # the no-changelog and with-changelog cases.
-          if [ -n "$CHANGELOG" ]; then
-            BODY="${BODY_HEAD}"$'\n'"### What changed"$'\n\n'"${CHANGELOG}"$'\n\n'"${BODY_TAIL}"
-          else
-            BODY="${BODY_HEAD}"$'\n'"${BODY_TAIL}"
-          fi
-
-          # Idempotency: skip if an open issue with this exact title already
-          # exists — reuse its URL instead of creating a duplicate.
-          # --paginate follows all pages; jq filter excludes pull requests.
-          ISSUE_URL=$(gh api --paginate "repos/${CONSUMER}/issues?state=open&per_page=100" \
-            --jq --arg t "$TITLE" 'map(select((.pull_request|not) and (.title==$t))) | .[0].html_url // empty' 2>/dev/null || true)
-          if [ -n "$ISSUE_URL" ]; then
-            echo "Issue already exists in ${CONSUMER}, skipping."
-            CREATED="false"
-          else
-            # Attempt creation with the 'dependencies' label; fall back
-            # without it if the label does not exist in the consumer repo.
-            ISSUE_URL=$(gh issue create \
-              --repo "$CONSUMER" \
-              --title "$TITLE" \
-              --body "$BODY" \
-              --label dependencies \
-            || gh issue create \
-              --repo "$CONSUMER" \
-              --title "$TITLE" \
-              --body "$BODY")
-            echo "Ticket opened in ${CONSUMER}: ${ISSUE_URL}"
-            CREATED="true"
-          fi
-          echo "issue_url=${ISSUE_URL}" >> "$GITHUB_OUTPUT"
-          echo "created=${CREATED}" >> "$GITHUB_OUTPUT"
-
-      - name: Add agent-comfy ticket to project board
-        if: steps.file_comfy.outputs.issue_url != ''
-        continue-on-error: true
-        shell: bash
-        env:
-          # Reuses COMFY_TICKET_TOKEN, which must be a classic PAT carrying
-          # both `repo` and `project` scopes.
-          GH_TOKEN: ${{ secrets.COMFY_TICKET_TOKEN }}
-        run: |
-          ITEM_ID=$(gh project item-add 2 --owner Seretos --url "${{ steps.file_comfy.outputs.issue_url }}" --format json --jq '.id')
-
-          # Only a freshly created ticket gets its board status set — a
-          # reused (already-existing) issue may have been moved by a human
-          # since, and a re-run must never yank it back to Backlog.
-          if [ "${{ steps.file_comfy.outputs.created }}" != "true" ]; then
-            echo "Issue was reused (not newly created); leaving its board status untouched."
-            exit 0
-          fi
-
-          PROJECT_ID=$(gh project view 2 --owner Seretos --format json --jq '.id' || true)
-          STATUS_FIELD_ID=$(gh project field-list 2 --owner Seretos --format json --jq '(.fields? // .)[] | select(.name=="Status") | .id' || true)
-          BACKLOG_OPTION_ID=$(gh project field-list 2 --owner Seretos --format json --jq '(.fields? // .)[] | select(.name=="Status") | .options[] | select(.name=="Backlog") | .id' || true)
-
-          if [ -z "$PROJECT_ID" ] || [ -z "$STATUS_FIELD_ID" ] || [ -z "$BACKLOG_OPTION_ID" ]; then
-            echo "::warning::Could not resolve project/Status-field/Backlog-option IDs; leaving new card's status unset."
-            exit 0
-          fi
-
-          gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" --field-id "$STATUS_FIELD_ID" --single-select-option-id "$BACKLOG_OPTION_ID"
+        uses: Seretos/agent-plugin-dev/.github/actions/notify-consumers@main
+        with:
+          version: ${{ inputs.version }}
+          source_repo: ${{ github.repository }}
+          consumers: Seretos/agent-comfy
+          gh_token: ${{ secrets.ECOSYSTEM_TOKEN }}
