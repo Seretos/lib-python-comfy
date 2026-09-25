@@ -149,11 +149,12 @@ jobs:
       - name: Open dependency-update tickets in consumers
         # Central ecosystem action (intentionally unpinned @main). Handles the
         # release notes, the idempotency check, labels and board placement.
-        # continue-on-error: a missing/invalid ECOSYSTEM_TOKEN must never fail the release.
-        continue-on-error: true
-        uses: Seretos/agent-plugin-dev/.github/actions/notify-consumers@main
+        # A failure here (e.g. a missing/invalid ECOSYSTEM_TOKEN) fails the
+        # release run itself -- silently missing bump tickets is worse than
+        # a red run.
+        uses: seretos-agents/modular-software-factory-dev/.github/actions/notify-consumers@main
         with:
           version: ${{ inputs.version }}
           source_repo: ${{ github.repository }}
-          consumers: Seretos/agent-comfy
+          consumers: seretos-agents/agent-comfy
           gh_token: ${{ secrets.ECOSYSTEM_TOKEN }}

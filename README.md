@@ -12,17 +12,17 @@ Pin an exact tag (recommended) or the floating major-release branch:
 
 ```bash
 # exact tag
-pip install "git+https://github.com/Seretos/lib-python-comfy@v0.1.0"
+pip install "git+https://github.com/seretos-agents/lib-python-comfy@v0.1.0"
 
 # floating: latest 0.x.y release
-pip install "git+https://github.com/Seretos/lib-python-comfy@release/0.x"
+pip install "git+https://github.com/seretos-agents/lib-python-comfy@release/0.x"
 ```
 
 Or in a consumer's `pyproject.toml`:
 
 ```toml
 dependencies = [
-  "lib-python-comfy @ git+https://github.com/Seretos/lib-python-comfy@v0.1.0",
+  "lib-python-comfy @ git+https://github.com/seretos-agents/lib-python-comfy@v0.1.0",
 ]
 ```
 

@@ -69,7 +69,7 @@ do those phases by hand on the main thread — let the skill drive them.
 
 When a release is published, `release.yml` calls the central ecosystem
 composite action
-`Seretos/agent-plugin-dev/.github/actions/notify-consumers@main`
+`seretos-agents/modular-software-factory-dev/.github/actions/notify-consumers@main`
 (intentionally unpinned on `@main`, so ecosystem-wide fixes reach this
 repo without a version bump here) to open a "bump dependency" ticket in
 each downstream consumer, so it can update its pin to the new `vX.Y.Z`.
@@ -78,12 +78,13 @@ and project-board placement — this repo supplies only facts.
 
 - **Trigger:** every `release.yml` run, immediately after the GitHub
   Release is created.
-- **Consumers:** `Seretos/agent-comfy`.
+- **Consumers:** `seretos-agents/agent-comfy`.
 - **Prerequisite — `ECOSYSTEM_TOKEN`:** a **classic PAT** (Settings →
   Developer settings → Personal access tokens → Tokens (classic)) with the
   `repo` and `project` scopes, stored as a repo secret on
-  `lib-python-comfy` and created by a human before the first release. The
-  step is `continue-on-error: true`, so a missing or invalid token never
-  fails the release.
+  `lib-python-comfy` and created by a human before the first release. A
+  missing or invalid token fails the release run itself (no
+  `continue-on-error`) — silently missing bump tickets is worse than a red
+  run.
 - **Catch-up:** if a run was skipped or failed, re-run it via the
-  `open-dep-ticket` workflow in the meta-repo `Seretos/agent-plugin-dev`.
+  `open-dep-ticket` workflow in the meta-repo `seretos-agents/modular-software-factory-dev`.
